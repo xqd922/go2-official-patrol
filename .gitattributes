@@ -1,0 +1,3 @@
+# 统一换行符处理：shell 脚本必须保持 LF，否则 Linux/WSL 下会报 bad interpreter
+* text=auto
+*.sh text eol=lf

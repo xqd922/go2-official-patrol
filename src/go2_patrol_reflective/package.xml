@@ -4,7 +4,7 @@
   <name>go2_patrol_reflective</name>
   <version>0.1.0</version>
   <description>Optional L1 intensity-based reflective tape virtual wall detector.</description>
-  <maintainer email="dev@local">Go2 Patrol</maintainer>
+  <maintainer email="dev@example.com">Go2 Patrol</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>

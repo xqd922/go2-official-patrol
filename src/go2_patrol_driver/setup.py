@@ -16,7 +16,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Go2 Patrol",
-    maintainer_email="dev@local",
+    maintainer_email="dev@example.com",
     description="Official-Unitree-to-ROS 2 navigation bridges.",
     license="MIT",
     tests_require=["pytest"],

@@ -9,9 +9,11 @@ sudo apt install -y \
   python3-colcon-common-extensions python3-vcstool
 
 cd "$(dirname "$0")/.."
-vcs import src < repos/go2_official_ws.repos
+vcs import < repos/go2_official_ws.repos
 cd src/unitree_ros2/cyclonedds_ws
+set +u
 source /opt/ros/humble/setup.bash
+set -u
 colcon build --symlink-install
-cd ../..
+cd ../../..
 colcon build --symlink-install

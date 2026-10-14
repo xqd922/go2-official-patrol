@@ -16,7 +16,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Go2 Patrol",
-    maintainer_email="dev@local",
+    maintainer_email="dev@example.com",
     description="Reflective tape virtual wall detector for testing.",
     license="MIT",
     tests_require=["pytest"],

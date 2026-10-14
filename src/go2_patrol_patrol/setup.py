@@ -16,7 +16,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Go2 Patrol",
-    maintainer_email="dev@local",
+    maintainer_email="dev@example.com",
     description="Waypoint inspection and speech playback.",
     license="MIT",
     tests_require=["pytest"],
