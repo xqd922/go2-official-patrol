@@ -1,6 +1,6 @@
 # Go2 Official Stack Patrol Workspace
 
-官方优先的 Go2 巡检工作空间：使用 Unitree 官方 `unitree_ros2` 消息、ROS 2 Humble、Nav2、SLAM Toolbox，实现建图、自主导航、航点巡检和到点语音。反光条只保留为后续可选扩展。
+官方优先的 Go2 巡检工作空间：使用 Unitree 官方 `unitree_ros2` 消息、ROS 2 Humble、Nav2、SLAM Toolbox，实现建图、自主导航、航点巡检和到点语音。反光条已新增独立测试项，用于验证 `intensity` 点云识别，但未接入避障。
 
 完整部署/操作/排错说明见 [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md)。
 
@@ -12,6 +12,7 @@
 | `go2_patrol_driver` | `/lf/sportmodestate` → TF/odom/imu；`/cmd_vel` → `/api/sport/request`；电量；运动命令 |
 | `go2_patrol_bringup` | L1 点云转 `/scan`、SLAM、Nav2、RViz |
 | `go2_patrol_patrol` | 航点巡检、到点触发 `/robot/say`、预录语音播放 |
+| `go2_patrol_reflective` | 反光条虚拟墙测试检测器，只输出 Marker/状态，不接入 Nav2 |
 
 ## Ubuntu / ROS 2
 
