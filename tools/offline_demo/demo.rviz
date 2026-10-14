@@ -18,7 +18,7 @@ Visualization Manager:
       Marker Scale: 0.6
       Show Names: true
     - Class: rviz_default_plugins/PointCloud2
-      Enabled: true
+      Enabled: false
       Name: PointCloud2_RAW
       Topic:
         Value: /utlidar/cloud_deskewed
