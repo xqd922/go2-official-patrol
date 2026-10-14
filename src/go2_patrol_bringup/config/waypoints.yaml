@@ -1,0 +1,14 @@
+waypoints:
+  - name: entrance
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    dwell: 4.0
+    speech: entrance
+    home: true
+  - name: equipment_zone
+    x: 2.0
+    y: 0.0
+    yaw: 0.0
+    dwell: 4.0
+    speech: equipment_zone
