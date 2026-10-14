@@ -60,10 +60,12 @@ class OdomBridge(Node):
         imu = Imu()
         imu.header.frame_id = "base_link"
         q = state.imu_state.quaternion
-        imu.orientation.x = q[0]
-        imu.orientation.y = q[1]
-        imu.orientation.z = q[2]
-        imu.orientation.w = q[3]
+        # rclpy returns numpy.float32 for float32[] fields on Humble; the
+        # Quaternion setter requires plain Python float, hence the casts.
+        imu.orientation.x = float(q[0])
+        imu.orientation.y = float(q[1])
+        imu.orientation.z = float(q[2])
+        imu.orientation.w = float(q[3])
         self.pub_imu.publish(imu)
 
     def on_state(self, state: SportModeState):
