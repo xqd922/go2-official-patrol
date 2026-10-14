@@ -17,28 +17,38 @@ from unitree_go.msg import LowState, SportModeState
 
 
 def build_room():
-    """Room x in [-3,3], y in [-4,4], plus a 0.5m box at (1.5, 1.5)."""
+    """3D room: walls at x=+-3, y=+-4 (z 0~2m) plus a 0.5m box at (1.5, 1.5).
+
+    Mimics a real L1 4D LiDAR sweep: vertical wall surfaces covered with
+    multiple horizontal scan layers, so RViz shows a genuine 3D point cloud
+    instead of a single flat ring.
+    """
     pts = []
-    x = -3.0
-    while x <= 3.0001:
-        pts.append((x, -4.0, 0.0))
-        pts.append((x, 4.0, 0.0))
-        x += 0.05
-    y = -4.0
-    while y <= 4.0001:
-        pts.append((-3.0, y, 0.0))
-        pts.append((3.0, y, 0.0))
-        y += 0.05
-    x = 1.25
-    while x <= 1.7501:
-        pts.append((x, 1.25, 0.0))
-        pts.append((x, 1.75, 0.0))
-        x += 0.05
-    y = 1.25
-    while y <= 1.7501:
-        pts.append((1.25, y, 0.0))
-        pts.append((1.75, y, 0.0))
-        y += 0.05
+    for z in [0.1, 0.4, 0.8, 1.2, 1.6, 2.0]:
+        # two long walls (y = +-4)
+        x = -3.0
+        while x <= 3.0001:
+            pts.append((x, -4.0, z))
+            pts.append((x, 4.0, z))
+            x += 0.06
+        # two short walls (x = +-3)
+        y = -4.0
+        while y <= 4.0001:
+            pts.append((-3.0, y, z))
+            pts.append((3.0, y, z))
+            y += 0.06
+        # box (0.5 x 0.5 x 0.5 m at (1.5, 1.5))
+        if z <= 0.5:
+            bx = 1.25
+            while bx <= 1.7501:
+                pts.append((bx, 1.25, z))
+                pts.append((bx, 1.75, z))
+                bx += 0.06
+            by = 1.25
+            while by <= 1.7501:
+                pts.append((1.25, by, z))
+                pts.append((1.75, by, z))
+                by += 0.06
     return pts
 
 

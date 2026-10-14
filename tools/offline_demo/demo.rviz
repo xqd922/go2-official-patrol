@@ -17,9 +17,21 @@ Visualization Manager:
       Name: TF
       Marker Scale: 0.6
       Show Names: true
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: PointCloud2_RAW
+      Topic:
+        Value: /utlidar/cloud_deskewed
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: AxisColor
+      Axis: Z
+      Position Transformer: XYZ
+      Queue Size: 10
     - Class: rviz_default_plugins/LaserScan
       Enabled: true
-      Name: LaserScan
+      Name: LaserScan_2D
       Topic:
         Value: /scan
         Reliability Policy: Best Effort
@@ -48,10 +60,15 @@ Visualization Manager:
     - Class: rviz_default_plugins/FocusCamera
   Views:
     Current:
-      Class: rviz_default_plugins/TopDownOrtho
+      Class: rviz_default_plugins/Orbit
       Name: Current View
-      Scale: 45
-      Target Frame: <Fixed Frame>
-Window Geometry:
-  Height: 900
-  Width: 1400
+      Distance: 14
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.5
+      Pitch: 0.95
+      Yaw: 0.7
+  Window Geometry:
+    Height: 980
+    Width: 1580
