@@ -86,4 +86,19 @@ ros2 run go2_patrol_patrol record_waypoint entrance
 
 ## 可选扩展：反光条虚拟墙
 
-未实现。后续需先确认 `/utlidar/cloud_deskewed` 有 `intensity`；若有，再单独加入官方 Nav2 costmap observation source。
+本工作空间已加入一个独立测试包 `go2_patrol_reflective`，用于实时检查 L1 点云里的高反射线状点，并在 RViz 显示测试用虚拟墙 Marker。它当前只做测试项，**不会让机器人自动避让**，不直接接入 Nav2 costmap。
+
+启动：
+
+```bash
+ros2 launch go2_patrol_reflective reflective.launch.py
+```
+
+状态话题：
+
+```bash
+ros2 topic echo /reflective_wall_status
+ros2 topic echo /reflective_wall_active
+```
+
+RViz 中添加 `MarkerArray` 后订阅 `/reflective_wall_markers`。
