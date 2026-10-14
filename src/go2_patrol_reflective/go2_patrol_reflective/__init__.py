@@ -1,1 +1,1 @@
-"""Optional reflective-tape detection for L1 PointCloud2 intensity data."""
+"""Optional reflective-tape detection for onboard 4D LiDAR (L1/L2) intensity data."""

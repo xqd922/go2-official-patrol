@@ -1,6 +1,16 @@
 # Go2 Official Stack Patrol Workspace
 
-官方优先的 Go2 巡检工作空间：使用 Unitree 官方 `unitree_ros2` 消息、ROS 2 Humble、Nav2、SLAM Toolbox，实现建图、自主导航、航点巡检和到点语音。反光条已新增独立测试项，用于验证 `intensity` 点云识别，但未接入避障。
+官方优先的 Go2 巡检工作空间：使用 Unitree 官方 `unitree_ros2` 消息、ROS 2 Humble、Nav2、SLAM Toolbox，实现建图、自主导航、航点巡检和到点语音。当前路线使用**机载 4D 激光雷达（L1/L2，以实机为准）**，不要求外置雷达。反光条已新增独立测试项，用于验证 `intensity` 点云识别，但未接入避障。
+
+> **EDU / 官方 SLAM 服务提醒**
+>
+> 机身自带的新款雷达是 **L2**（旧批次是 L1），SDK 话题接口相同。
+> L2 周向约 5.55Hz、单圈约 11500 点；L1 周向约 11Hz、单圈约 2000 点。
+> 自动巡检建议先从 0.3～0.6 m/s 验证急停距离。
+> 宇树官方 `slam_operate` 导航服务**不使用机载 L2**，只支持
+> **EDU + 拓展坞 + 官方外置 MID-360/XT16**。两种路线的差异、限制和
+> “反光条能否当墙”的结论见
+> [`docs/EDU与L2-官方SLAM导航服务对比.md`](docs/EDU与L2-官方SLAM导航服务对比.md)。
 
 完整部署/操作/排错说明见 [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md)。
 
@@ -10,7 +20,7 @@
 |---|---|
 | `unitree_ros2` | Unitree 官方消息与 CycloneDDS 环境 |
 | `go2_patrol_driver` | `/lf/sportmodestate` → TF/odom/imu；`/cmd_vel` → `/api/sport/request`；电量；运动命令 |
-| `go2_patrol_bringup` | L1 点云转 `/scan`、SLAM、Nav2、RViz |
+| `go2_patrol_bringup` | 机载 4D 雷达点云转 `/scan`、SLAM、Nav2、RViz |
 | `go2_patrol_patrol` | 航点巡检、到点触发 `/robot/say`、预录语音播放 |
 | `go2_patrol_reflective` | 反光条虚拟墙测试检测器，只输出 Marker/状态，不接入 Nav2 |
 
@@ -87,7 +97,7 @@ ros2 run go2_patrol_patrol record_waypoint entrance
 
 ## 可选扩展：反光条虚拟墙
 
-本工作空间已加入一个独立测试包 `go2_patrol_reflective`，用于实时检查 L1 点云里的高反射线状点，并在 RViz 显示测试用虚拟墙 Marker。它当前只做测试项，**不会让机器人自动避让**，不直接接入 Nav2 costmap。
+本工作空间已加入一个独立测试包 `go2_patrol_reflective`，用于实时检查机载 4D 雷达点云里的高反射线状点，并在 RViz 显示测试用虚拟墙 Marker。它当前只做测试项，**不会让机器人自动避让**，不直接接入 Nav2 costmap。
 
 启动：
 

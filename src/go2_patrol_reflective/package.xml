@@ -3,7 +3,7 @@
 <package format="3">
   <name>go2_patrol_reflective</name>
   <version>0.1.0</version>
-  <description>Optional L1 intensity-based reflective tape virtual wall detector.</description>
+  <description>Optional onboard 4D LiDAR (L1/L2) intensity-based reflective tape virtual wall detector.</description>
   <maintainer email="dev@example.com">Go2 Patrol</maintainer>
   <license>MIT</license>
 
