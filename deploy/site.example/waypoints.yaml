@@ -1,0 +1,16 @@
+# 巡检点位示例：每个点都要现场标定，别直接用于生产。
+# 采集单点：ros2 run go2_patrol_patrol record_waypoint <名字>
+waypoints:
+  - name: home                # 点位名（同时是日志/语音 ID 的来源）
+    x: 0.0                    # map 坐标系（米）
+    y: 0.0
+    yaw: 0.0                  # 朝向（弧度）
+    dwell: 4.0                # 到点停留秒数
+    speech: home              # 到点播音 ID → audio/home.wav
+    home: true                # 归位点（必须且只能有一个）
+  - name: equipment_zone
+    x: 2.0
+    y: 0.0
+    yaw: 0.0
+    dwell: 4.0
+    speech: equipment_zone
