@@ -63,7 +63,8 @@ jobs:
         run: |
           source /opt/ros/humble/setup.bash
           source install/setup.bash
-          colcon test --event-handlers console_direct+
+          # 只测本仓库的包；上游 unitree_* 的 lint 结果不归属本仓库
+          colcon test --packages-skip-regex '^unitree_' --event-handlers console_direct+
           colcon test-result --verbose
 
       - name: Upload colcon logs on failure
