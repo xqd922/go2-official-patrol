@@ -60,6 +60,8 @@ ros2 launch go2_patrol_bringup navigation.launch.py
 ```
 
 在 RViz 中使用 `2D Pose Estimate` 给初始位姿，再用 `2D Goal Pose` 单目标测试。
+默认加载巡检视图 [`rviz/patrol.rviz`](src/go2_patrol_bringup/rviz/README.md)
+（地图/代价地图/激光/规划/定位/巡检点位一屏看完），换视图加 `rviz_config:=<自己的.rviz>`。
 
 ## 巡检和语音
 
@@ -89,6 +91,28 @@ ros2 run go2_patrol_patrol record_waypoint entrance
 
 输出片段后粘贴进 `waypoints.yaml`，再补 `speech` 和 `dwell`。
 
+## 离线闭环演示（没有机器狗也能验收全链路）
+
+`tools/offline_demo/` 用假数据把**生产链路整条跑通**：造地图/造语音 → 站点资产校验 →
+`apply_site.sh` 落地站点 → `run_site.sh` 起巡检栈 → 逐点自动验收（顺序/精度/行程/播报）。
+
+```bash
+# 无头跑一轮（台架或 CI 用），通过会打印「验收通过 ✅」
+tools/offline_demo/run_patrol_demo.sh
+
+# 带 RViz 肉眼确认巡检过程（需要有显示环境）
+tools/offline_demo/run_patrol_demo.sh --rviz
+
+tools/offline_demo/run_patrol_demo.sh --battery-drop-after 60      # 验证低电量返航
+tools/offline_demo/run_patrol_demo.sh --obstacles "0.5,0,0.6,0.6,0.6"  # 验证绕障
+tools/offline_demo/run_patrol_demo.sh --loops 0 --timeout 600     # 无限巡检
+tools/offline_demo/run_patrol_demo.sh --clean                     # 只清残留进程
+```
+
+和 `run_demo.sh` 的区别：`run_demo.sh` 是**建图**演示（假狗 + SLAM Toolbox + RViz 看地图长出来，
+依赖 `$HOME/go2_official_ws`）；`run_patrol_demo.sh` 是**巡检闭环**演示，跑的是生产同一套
+`run_site.sh` 与站点参数，并且自带断言——能不能交付看它。
+
 ## 生产交付（部署到另一台机器狗）
 
 交付到生产机走 [`deploy/`](deploy/README.md) 工具包，流程、现场标定与验收清单见 [`docs/生产交付手册.md`](docs/生产交付手册.md)。
@@ -114,6 +138,24 @@ sudo systemctl enable --now go2-patrol@office
 - Nav2
 - SLAM Toolbox
 - `pointcloud_to_laserscan`
+
+## 真机联调须知
+
+离线闭环演示已把整条链路跑通并断言过，但以下几处上真机时仍要实测确认：
+
+- **TF `base_footprint → base_link`**：机器人自身若已发布这条 TF，就不要再用
+  `static_transform_publisher` 补链（见 `tools/offline_demo/run_demo.sh` 注释），重复发布会让 Nav2 报 TF 冲突。
+- **Nav2 参数三处坑**（本仓库已修，改站点参数时别改回去）：
+  1. `nav2_params.yaml` 必须有 `map_server` 的 `yaml_filename` 段——`nav2_bringup` 的 `RewrittenYaml`
+     只改写**已存在**的 key，缺段会让地图路径永远注入不进去，localization 启动即
+     `parameter 'yaml_filename' is not initialized`；
+  2. `controller_server` 的 `controller_plugins` / `goal_checker_plugins` 必须是**字符串数组**
+     （`[FollowPath]` / `[goal_checker]`），写成标量会 `has invalid type` 让组件加载失败；
+  3. `local_costmap` 的 `plugins` 里声明了 `inflation_layer`，就**必须**有对应的 `inflation_layer:`
+     配置块，否则 costmap 插件加载 FATAL、`nav2_container` 段错误，整栈全崩（真机同样崩）。
+- **`bt_navigator.default_nav_to_pose_bt_xml` 不要写成空串**：空串不等于"用默认值"，而是加载空文件 →
+  `Empty Tree` → 所有导航目标必然失败。要用内置默认行为树就**删掉这一行**。
+- **急停阈值与速度上限按现场地面/负载复核**，见 [`docs/生产交付手册.md`](docs/生产交付手册.md) 第 11 节。
 
 ## 可选扩展：反光条虚拟墙
 
