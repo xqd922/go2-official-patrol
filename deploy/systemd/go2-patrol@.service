@@ -1,0 +1,38 @@
+# Go2 巡检站点服务模板（deploy/install.sh 会落地到 /etc/systemd/system/go2-patrol@.service）
+# 实例名 = 站点名，例如: systemctl enable --now go2-patrol@office
+# 占位符 @GO2_ROOT@ / @GO2_USER@ 在安装时替换。
+[Unit]
+Description=Go2 巡检任务（站点 %i）
+Documentation=file:@GO2_ROOT@/current/docs/生产交付手册.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@GO2_USER@
+WorkingDirectory=@GO2_ROOT@/current
+EnvironmentFile=-/etc/go2/site.env
+Environment=GO2_SITE=%i
+Environment=ROS_LOG_DIR=/var/log/go2/ros
+Environment=RCUTILS_COLORIZED_OUTPUT=0
+LogsDirectory=go2
+RuntimeDirectory=go2-%i
+
+# 启动前自检：站点资产 / 网卡等硬性检查不过就不启动
+ExecStartPre=/bin/bash @GO2_ROOT@/current/deploy/preflight.sh %i
+ExecStart=/bin/bash @GO2_ROOT@/current/deploy/run_site.sh %i
+
+# 崩溃自动拉起；停止时用 SIGINT 让 ros2 launch 干净退出
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGINT
+TimeoutStopSec=60
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=go2-patrol-%i
+
+[Install]
+WantedBy=multi-user.target

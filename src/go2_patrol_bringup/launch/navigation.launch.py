@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -19,7 +20,7 @@ def generate_launch_description():
         )
     )
     map_yaml = LaunchConfiguration("map")
-    params_file = os.path.join(bringup, "config", "nav2_params.yaml")
+    params_file = LaunchConfiguration("params_file")
     navigation = TimerAction(
         period=3.0,
         actions=[
@@ -39,10 +40,19 @@ def generate_launch_description():
         package="rviz2",
         executable="rviz2",
         output="screen",
+        condition=IfCondition(LaunchConfiguration("rviz")),
     )
     return LaunchDescription(
         [
             DeclareLaunchArgument("map", default_value=os.path.join(bringup, "maps", "map.yaml")),
+            DeclareLaunchArgument(
+                "params_file",
+                default_value=os.path.join(bringup, "config", "nav2_params.yaml"),
+                description="Nav2 参数文件（站点可用 apply_site.sh 生成自己的副本）",
+            ),
+            DeclareLaunchArgument(
+                "rviz", default_value="true", description="是否启动 RViz；无显示器的生产机设 false"
+            ),
             perception,
             driver,
             navigation,

@@ -4,6 +4,7 @@ import math
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from unitree_api.msg import Request
 
@@ -56,7 +57,12 @@ class TwistBridge(Node):
         self.commands_sent = 0
         self.last_emergency = self.get_clock().now() - rclpy.duration.Duration(seconds=10.0)
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd_vel, 10)
-        self.create_subscription(LaserScan, gp("scan_topic").value, self.on_scan, 10)
+        # 必须用 sensor data QoS：pointcloud_to_laserscan 以 best_effort 发布 /scan，
+        # 默认的 reliable 订阅与之不兼容，日志会报 incompatible QoS 且收不到任何扫描，
+        # 导致前置急停（stop_distance / emergency_distance）静默失效。
+        self.create_subscription(
+            LaserScan, gp("scan_topic").value, self.on_scan, qos_profile_sensor_data
+        )
         self.pub_request = self.create_publisher(Request, "/api/sport/request", 10)
         self.timer = self.create_timer(0.05, self.republish_stop)
 

@@ -1,5 +1,7 @@
 # Go2 Official Stack Patrol Workspace
 
+![CI](https://github.com/xqd922/go2-official-patrol/actions/workflows/ci.yml/badge.svg)
+
 官方优先的 Go2 巡检工作空间：使用 Unitree 官方 `unitree_ros2` 消息、ROS 2 Humble、Nav2、SLAM Toolbox，实现建图、自主导航、航点巡检和到点语音。当前路线使用**机载 4D 激光雷达（L1/L2，以实机为准）**，不要求外置雷达。反光条已新增独立测试项，用于验证 `intensity` 点云识别，但未接入避障。
 
 > **EDU / 官方 SLAM 服务提醒**
@@ -86,6 +88,24 @@ ros2 run go2_patrol_patrol record_waypoint entrance
 ```
 
 输出片段后粘贴进 `waypoints.yaml`，再补 `speech` 和 `dwell`。
+
+## 生产交付（部署到另一台机器狗）
+
+交付到生产机走 [`deploy/`](deploy/README.md) 工具包，流程、现场标定与验收清单见 [`docs/生产交付手册.md`](docs/生产交付手册.md)。
+
+```bash
+# 生产机：装到 /opt/go2/releases/<版本>，切 current，装 systemd 单元
+sudo deploy/install.sh --ref v0.1.0 --iface enp3s0
+
+# 落地站点资产（地图/点位/语音/site.yaml），生成站点参数并自检
+sudo deploy/apply_site.sh --site-dir /media/usb/site-office --name office
+
+# 开机自启 + 崩溃自动重启
+sudo systemctl enable --now go2-patrol@office
+```
+
+要点：站点差异（固定起点初始位姿、巡检任务参数、网卡）集中在站点 `site.yaml`；
+升级与回滚只切 `/opt/go2/current` 软链，站点资产不受影响。
 
 ## 官方依赖
 
