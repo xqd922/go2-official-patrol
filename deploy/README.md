@@ -62,13 +62,12 @@ main 合并 → 打 tag v0.1.0
 
 ```bash
 # 0. 准备一台 Ubuntu 22.04 + ROS 2 Humble
-# 1. 在线安装
+# 1. 在线安装（会自动编译；离线包见手册 3.2）
 git clone <你的仓库> && cd go2_official_ws
 sudo deploy/install.sh --iface enp3s0
 
-# 2. 台架验证：造一份空白站点骨架（不需要真机）
-python3 deploy/tools/make_blank_map.py /tmp/site-demo --name demo
-sudo deploy/apply_site.sh --site-dir /tmp/site-demo --name demo
+# 2. 台架验证：site.example 自带 10m 空地占位图，不需要真机/建图产物
+sudo deploy/apply_site.sh --site-dir deploy/site.example --name demo
 sudo systemctl enable --now go2-patrol@demo
 journalctl -u go2-patrol@demo -f
 
@@ -76,6 +75,8 @@ journalctl -u go2-patrol@demo -f
 sudo deploy/apply_site.sh --site-dir /media/usb/site-office --name office
 sudo systemctl enable --now go2-patrol@office
 ```
+
+> 想换房间尺寸再自测时用 `python3 deploy/tools/make_blank_map.py <目录> --size 15` 生成骨架。
 
 > 台架骨架用空白房间地图，AMCL 与 Nav2 会正常起来；机器狗不在线时只有驱动桥接报错，
 > 属预期行为，用来验证「systemd → 环境 → launch → 参数」这条链路。

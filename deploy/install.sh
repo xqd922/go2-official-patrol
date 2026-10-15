@@ -281,7 +281,12 @@ if [ -n "$SITE_SRC" ]; then
   if [ -n "$SITE_NAME" ]; then
     APPLY_ARGS+=(--name "$SITE_NAME")
   fi
-  bash "${GO2_ROOT}/current/deploy/apply_site.sh" "${APPLY_ARGS[@]}"
+  # 站点资产不完整（例如目录里没有建图产物）不应该让"装好了"这件事本身失败，
+  # 这里降级为警告，交付现场可以用 apply_site.sh 单独重试。
+  if ! bash "${GO2_ROOT}/current/deploy/apply_site.sh" "${APPLY_ARGS[@]}"; then
+    warn "站点资产落地失败（见上面的 [apply_site]/[render_site] 输出）"
+    warn "修好后重试：sudo bash ${GO2_ROOT}/current/deploy/apply_site.sh --site-dir <站点目录>"
+  fi
 fi
 
 cat <<EOF
