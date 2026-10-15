@@ -1,0 +1,76 @@
+name: build-and-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: colcon build + test (ROS 2 Humble)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ROS 2 Humble
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+
+      - name: Extra apt dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-vcstool python3-colcon-common-extensions \
+            ros-humble-rosidl-generator-dds-idl \
+            python3-numpy python3-yaml python3-pytest
+          # Runner 镜像预装 LLVM 的 libunwind-14-dev，与 Ubuntu libunwind-dev 冲突。
+          # slam_toolbox -> libceres-dev -> libgoogle-glog-dev 需要 libunwind-dev，
+          # 作为深层依赖时 apt 拒绝替换，故在此显式请求安装。
+          sudo apt-get install -y libunwind-dev
+
+      - name: Import pinned official Unitree packages
+        run: vcs import < repos/go2_official_ws.repos
+
+      - name: Skip upstream example package (not needed for build/test)
+        run: touch src/unitree_ros2/example/COLCON_IGNORE
+
+      - name: rosdep install
+        shell: bash
+        run: |
+          sudo rosdep init 2>/dev/null || true
+          rosdep update
+          source /opt/ros/humble/setup.bash
+          rosdep install --from-paths src --ignore-src -y --rosdistro humble
+
+      - name: colcon build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --symlink-install --event-handlers console_cohesion+
+
+      - name: colcon test
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          source install/setup.bash
+          # 只测本仓库的包；上游 unitree_* 的 lint 结果不归属本仓库
+          colcon test --packages-skip-regex '^unitree_' --event-handlers console_direct+
+          colcon test-result --verbose
+
+      - name: Upload colcon logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colcon-logs
+          path: log/
+          if-no-files-found: ignore
