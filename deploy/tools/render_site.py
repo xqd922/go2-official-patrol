@@ -139,6 +139,58 @@ def patch_robot_radius(text: str, value: float) -> str:
     return "\n".join(out) + "\n"
 
 
+def patch_goal_tolerance(text: str, value: float) -> str:
+    """把 patrol.arrival_tolerance 落到 Nav2 goal_checker.xy_goal_tolerance。
+
+    到点判定实际由 Nav2 的 goal_checker 执行（patrol_manager 只做复核并告警），
+    所以站点里的 arrival_tolerance 必须写进参数文件才算生效，否则就是个死配置。
+    """
+    pattern = re.compile(r"^(\s*xy_goal_tolerance:\s*)([-+]?[0-9]*\.?[0-9]+)(.*)$")
+    out, count = [], 0
+    for line in text.splitlines():
+        match = pattern.match(line)
+        if match:
+            line = f"{match.group(1)}{value}{match.group(3)}"
+            count += 1
+        out.append(line)
+    if count == 0:
+        warn("模板里没有 xy_goal_tolerance，arrival_tolerance 只用于 patrol_manager 的复核告警")
+    else:
+        ok(f"Nav2 到点容差 xy_goal_tolerance 覆盖为 {value}（{count} 处）")
+    return "\n".join(out) + "\n"
+
+
+def validate_generated_params(path: str, initial: dict) -> None:
+    """确认生成的参数文件本身可用：能解析、初始位姿真的写进去了。"""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as exc:
+        fail(f"生成的 {os.path.basename(path)} 无法解析: {exc}")
+        return
+    if not isinstance(data, dict):
+        fail(f"生成的 {os.path.basename(path)} 结构异常（顶层不是映射）")
+        return
+    amcl = (data.get("amcl") or {}).get("ros__parameters") or {}
+    if not amcl:
+        fail("生成的参数文件里没有 amcl.ros__parameters")
+        return
+    if amcl.get("set_initial_pose") is not True:
+        fail("生成的参数里 amcl.set_initial_pose 不是 true，开机自启不会自动定位")
+    pose = amcl.get("initial_pose") or {}
+    for key in ("x", "y", "yaw"):
+        if key not in pose:
+            fail(f"生成的参数里缺少 amcl.initial_pose.{key}")
+            continue
+        if abs(float(pose[key]) - float(initial.get(key, 0.0))) > 1e-6:
+            fail(
+                f"生成的 amcl.initial_pose.{key}={pose[key]} 与 site.yaml 的 "
+                f"{float(initial.get(key, 0.0))} 不一致"
+            )
+    if not FAILS:
+        ok(f"生成的参数已复核：set_initial_pose=true, initial_pose=({pose.get('x')}, {pose.get('y')}, {pose.get('yaw')})")
+
+
 def banner(name: str, template: str) -> str:
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return (
@@ -314,10 +366,15 @@ def main() -> int:
     if cfg.get("robot_radius") is not None:
         text = patch_robot_radius(text, float(cfg["robot_radius"]))
 
+    patrol = cfg.get("patrol") or {}
+    if patrol.get("arrival_tolerance") is not None:
+        text = patch_goal_tolerance(text, float(patrol["arrival_tolerance"]))
+
     params_path = os.path.join(site_dir, "nav2_params.yaml")
     with open(params_path, "w", encoding="utf-8") as handle:
         handle.write(banner(name, template) + text)
     ok(f"已生成 {params_path}")
+    validate_generated_params(params_path, initial)
 
     env_path = write_site_env(site_dir, name, cfg)
     ok(f"已生成 {env_path}")

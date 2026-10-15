@@ -1,0 +1,144 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Map1
+        - /LaserScan1
+        - /Path1
+  - Class: rviz_common/Views
+    Name: Views
+  - Class: rviz_common/Time
+    Name: Time
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Cell Size: 1
+      Plane Cell Count: 20
+      Color: 160; 160; 164
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Marker Scale: 0.6
+      Show Names: true
+    - Class: rviz_default_plugins/Map
+      Enabled: true
+      Name: Map
+      Alpha: 0.7
+      Color Scheme: map
+      Topic:
+        Value: /map
+        Depth: 5
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Map
+      Enabled: true
+      Name: GlobalCostmap
+      Alpha: 0.4
+      Color Scheme: costmap
+      Topic:
+        Value: /global_costmap/costmap
+    - Class: rviz_default_plugins/Map
+      Enabled: true
+      Name: LocalCostmap
+      Alpha: 0.4
+      Color Scheme: costmap
+      Topic:
+        Value: /local_costmap/costmap
+    - Class: rviz_default_plugins/LaserScan
+      Enabled: true
+      Name: LaserScan
+      Topic:
+        Value: /scan
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (m): 0.03
+      Color: 255; 60; 60
+      Color Transformer: FlatColor
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: false
+      Name: PointCloud2
+      Topic:
+        Value: /utlidar/cloud_deskewed
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: GlobalPlan
+      Topic:
+        Value: /plan
+      Line Style: Lines
+      Color: 0; 255; 0
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: LocalPlan
+      Topic:
+        Value: /local_plan
+      Line Style: Lines
+      Color: 0; 200; 255
+    - Class: rviz_default_plugins/PoseWithCovariance
+      Enabled: true
+      Name: AMCLPose
+      Topic:
+        Value: /amcl_pose
+        Reliability Policy: Best Effort
+      Covariance:
+        Value: true
+      Shape: Arrow
+      Color: 255; 255; 0
+    - Class: rviz_default_plugins/PoseArray
+      Enabled: true
+      Name: ParticleCloud
+      Topic:
+        Value: /particle_cloud
+        Reliability Policy: Best Effort
+      Shape: Arrow (Flat)
+      Color: 255; 170; 0
+    - Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: Odometry
+      Topic:
+        Value: /odom
+      Keep: 1
+      Covariance:
+        Value: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: WaypointMarkers
+      Topic:
+        Value: /waypoints/markers
+  Global Options:
+    Fixed Frame: map
+    Background Color: 48; 48; 48
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic:
+        Value: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 12
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.5
+      Pitch: 1.2
+      Yaw: 0.7
+  Window Geometry:
+    Height: 1000
+    Width: 1600

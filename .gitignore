@@ -2,6 +2,7 @@ build/
 install/
 log/
 src/unitree_ros2/
+sites/
 __pycache__/
 *.py[cod]
 
