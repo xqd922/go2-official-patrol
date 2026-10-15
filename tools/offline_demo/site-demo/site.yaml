@@ -1,0 +1,31 @@
+# 离线演示站点参数（对应 tools/offline_demo/geometry.py 的默认房间）。
+# 用途：在没有机器狗、没有真机建图数据的机器上，把
+#   apply_site.sh → render_site.py → site.env → run_site.sh → patrol.launch.py
+# 这条生产交付链路整条跑通，并验证巡检逻辑（到点/语音/圈数/低电量返航）。
+#
+# 现场交付请用真机建图与标定结果，不要直接复用本文件。
+name: demo
+
+# 接机器狗的网卡名；留空 = 自动取默认路由网卡。
+iface: ""
+
+# 离线演示不连真机；保留官方默认地址，方便对比真机 site.yaml 的差异。
+dog_ip: 192.168.123.161
+
+# 固定起点：假机器狗默认从 (0,0) 朝 +x 启动，与 geometry.py 的房间中心一致。
+initial_pose:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
+
+# 与生产 nav2_params.yaml 一致
+robot_radius: 0.35
+
+# 离线演示默认无头（CI/无显示器可用）；想看 RViz 用 run_patrol_demo.sh --rviz
+rviz: false
+
+patrol:
+  loops: 1
+  return_home: true
+  battery_low: 20.0
+  arrival_tolerance: 0.30

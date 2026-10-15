@@ -1,0 +1,49 @@
+# 离线演示点位：坐标全部落在 geometry.py 的默认房间内（6m x 8m，箱子在 (1.5, 1.5)）。
+# 每个点都留了 ≥0.7m 的墙/障碍净空（机器人半径 0.35 + inflation 0.45），
+# 可由 tools/offline_demo/check_site.py 复核；现场交付的点位必须现场标定。
+#
+# 注意：patrol_manager 用 waypoints[0] 作为低电量返航点，所以 home 必须排第一。
+waypoints:
+  - name: home
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    dwell: 3.0
+    speech: home
+    home: true
+
+  - name: zone_ne
+    x: 2.0
+    y: 3.0
+    yaw: 3.1416
+    dwell: 3.0
+    speech: zone_ne
+
+  - name: zone_se
+    x: 2.0
+    y: -3.0
+    yaw: 3.1416
+    dwell: 3.0
+    speech: zone_se
+
+  - name: zone_sw
+    x: -2.0
+    y: -3.0
+    yaw: 0.0
+    dwell: 3.0
+    speech: zone_sw
+
+  - name: zone_nw
+    x: -2.0
+    y: 3.0
+    yaw: 0.0
+    dwell: 3.0
+    speech: zone_nw
+
+  # 设备区巡检点：停在木箱西侧 0.75m 处，朝 +x 正对障碍物
+  - name: equipment_zone
+    x: 0.5
+    y: 1.5
+    yaw: 0.0
+    dwell: 4.0
+    speech: equipment_zone
