@@ -41,10 +41,12 @@ jobs:
         run: touch src/unitree_ros2/example/COLCON_IGNORE
 
       - name: rosdep install
+        shell: bash
         run: |
           sudo rosdep init 2>/dev/null || true
           rosdep update
-          rosdep install --from-paths src --ignore-src -y
+          source /opt/ros/humble/setup.bash
+          rosdep install --from-paths src --ignore-src -y --rosdistro humble
 
       - name: colcon build
         shell: bash
