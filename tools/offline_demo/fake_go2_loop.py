@@ -249,9 +249,12 @@ class FakeGo2ClosedLoop(Node):
                     wz - SENSOR_Z,
                 )
             )
-        self.pub_cloud.publish(
-            make_cloud("utlidar_lidar", self.get_clock().now().to_msg(), local)
-        )
+        try:
+            self.pub_cloud.publish(
+                make_cloud("utlidar_lidar", self.get_clock().now().to_msg(), local)
+            )
+        except Exception:  # 收尾阶段 context 已失效，这不是错误
+            pass
 
 
 def parse_args(argv=None):
@@ -289,15 +292,18 @@ def main(argv=None):
     node = FakeGo2ClosedLoop(options)
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
-        node.get_logger().info(
-            f"结束：位姿=({node.x:.2f}, {node.y:.2f}, {node.yaw:.2f}) "
-            f"累计里程={node.distance_travelled:.2f}m"
-        )
+        try:
+            node.get_logger().info(
+                f"结束：位姿=({node.x:.2f}, {node.y:.2f}, {node.yaw:.2f}) "
+                f"累计里程={node.distance_travelled:.2f}m"
+            )
+        except Exception:
+            pass
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

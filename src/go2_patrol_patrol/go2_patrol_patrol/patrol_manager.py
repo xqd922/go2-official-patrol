@@ -21,9 +21,16 @@ from rclpy.qos import (
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from visualization_msgs.msg import Marker, MarkerArray
 
 from go2_patrol_patrol.patrol_sequence import PatrolSequence
 from go2_patrol_patrol.waypoints import Waypoint, load_waypoints
+
+
+COLOR_PENDING = (0.2, 0.6, 1.0, 0.9)   # 未访问：蓝
+COLOR_ACTIVE = (1.0, 0.85, 0.0, 1.0)   # 当前目标：黄
+COLOR_DONE = (0.2, 0.9, 0.3, 0.9)      # 已到达：绿
+COLOR_HOME = (1.0, 0.3, 0.3, 0.9)      # 返航点：红
 
 
 def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
@@ -72,6 +79,8 @@ class PatrolManager(Node):
         self.active_waypoint = None
         self.amcl_pose = None
         self.dwell_until = self.get_clock().now()
+        self.visited: set[int] = set()   # 本圈已到达的点位下标（用于 RViz 标记着色）
+        self.shown_loop = 0
 
         speech_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
@@ -80,6 +89,9 @@ class PatrolManager(Node):
             durability=QoSDurabilityPolicy.VOLATILE,
         )
         self.pub_say = self.create_publisher(String, "/robot/say", speech_qos)
+        # 点位可视化：RViz 里直接看到"哪些点还没去 / 正在去哪 / 已到过"
+        self.pub_markers = self.create_publisher(MarkerArray, "/waypoints/markers", 1)
+        self.publish_markers()
         self.create_subscription(String, "/robot/status", self.on_status, 10)
         self.create_subscription(BatteryState, "/battery_state", self.on_battery, 10)
         # AMCL 位姿 = Nav2 判定"到没到"所用的位姿，用来复核到点精度（见 log_arrival）
@@ -100,6 +112,51 @@ class PatrolManager(Node):
         )
 
     # ---------------------------------------------------------------- 播报
+    def publish_markers(self):
+        """把点位状态画成 RViz 标记（已到=绿 / 当前目标=黄 / 未访问=蓝 / home=红）。"""
+        markers = MarkerArray()
+        for index, waypoint in enumerate(self.waypoints):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "waypoints"
+            marker.id = index
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            marker.pose.position.x = waypoint.x
+            marker.pose.position.y = waypoint.y
+            marker.pose.position.z = 0.15
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = marker.scale.y = marker.scale.z = 0.25
+            if waypoint is self.active_waypoint:
+                color = COLOR_ACTIVE
+            elif index in self.visited:
+                color = COLOR_DONE
+            elif self.sequence.returning and self.sequence.home_index == index:
+                color = COLOR_HOME
+            else:
+                color = COLOR_PENDING
+            marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
+            marker.lifetime.sec = 0  # 常驻，由下一次刷新覆盖
+            markers.markers.append(marker)
+
+            label = Marker()
+            label.header = marker.header
+            label.ns = "waypoint_labels"
+            label.id = index
+            label.type = Marker.TEXT_VIEW_FACING
+            label.action = Marker.ADD
+            label.pose.position.x = waypoint.x
+            label.pose.position.y = waypoint.y
+            label.pose.position.z = 0.55
+            label.pose.orientation.w = 1.0
+            label.scale.z = 0.22
+            label.color.r = label.color.g = label.color.b = label.color.a = 1.0
+            label.text = waypoint.name
+            label.lifetime.sec = 0
+            markers.markers.append(label)
+        self.pub_markers.publish(markers)
+
     def say(self, waypoint: Waypoint):
         """每个点到点播报一次（多圈巡检每圈都会播）。"""
         message = String()
@@ -180,6 +237,7 @@ class PatrolManager(Node):
         self.navigator.goToPose(pose_message(self.navigator, waypoint))
         self.current_goal = True
         self.active_waypoint = waypoint
+        self.publish_markers()
         self.get_logger().info(f"前往 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f})")
 
     def tick(self):
@@ -215,7 +273,13 @@ class PatrolManager(Node):
             self.say(waypoint)
             self.log_arrival(waypoint)
             self.dwell_until = self.get_clock().now() + Duration(seconds=waypoint.dwell)
+            index = self.waypoints.index(waypoint)
             self.sequence.on_arrival(waypoint)
+            if self.sequence.loop_index != self.shown_loop:
+                self.shown_loop = self.sequence.loop_index
+                self.visited.clear()
+            self.visited.add(index)
+            self.publish_markers()
             self.get_logger().info(f"到达 {waypoint.name} → {self.sequence.describe()}")
         elif result == TaskResult.FAILED:
             self.get_logger().warn(f"前往 {waypoint.name} 失败，稍后重试")

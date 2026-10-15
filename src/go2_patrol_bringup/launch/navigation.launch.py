@@ -40,6 +40,7 @@ def generate_launch_description():
         package="rviz2",
         executable="rviz2",
         output="screen",
+        arguments=["-d", LaunchConfiguration("rviz_config")],
         condition=IfCondition(LaunchConfiguration("rviz")),
     )
     return LaunchDescription(
@@ -52,6 +53,11 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "rviz", default_value="true", description="是否启动 RViz；无显示器的生产机设 false"
+            ),
+            DeclareLaunchArgument(
+                "rviz_config",
+                default_value=os.path.join(bringup, "rviz", "patrol.rviz"),
+                description="RViz 配置；默认巡检视图（地图/代价地图/路径/定位粒子）",
             ),
             perception,
             driver,
