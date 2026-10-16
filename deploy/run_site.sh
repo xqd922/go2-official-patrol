@@ -68,6 +68,9 @@ fi
 if [ -n "${GO2_PATROL_DWELL_OVERRIDE:-}" ]; then
   LAUNCH_ARGS+=("dwell_override:=${GO2_PATROL_DWELL_OVERRIDE}")
 fi
+if [ -n "${GO2_PATROL_YAW_MODE:-}" ]; then
+  LAUNCH_ARGS+=("yaw_mode:=${GO2_PATROL_YAW_MODE}")
+fi
 
 echo "[run_site] 站点=${SITE} 目录=${SITE_DIR}"
 echo "[run_site] ros2 launch go2_patrol_bringup patrol.launch.py ${LAUNCH_ARGS[*]}"

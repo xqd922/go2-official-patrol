@@ -142,7 +142,11 @@ ros2 service call /patrol/stop   std_srvs/srv/Trigger   # 停止
 
 常用 launch 参数：`loops`（圈数，0=无限）、`return_home`（默认 true）、
 `battery_low`（低电量阈值，默认 20%）、`arrival_tolerance`（到点容差，默认 0.30m）、
+`yaw_mode`（到点朝向：`fixed`/`travel`/`next`，路口用 `travel` 可显著减少原地转）、
 `rviz`、`map`、`params_file`、`waypoints_file`、`audio_dir`。
+
+> 走到角落"原地转半天"多半不是定位问题，而是点位 `yaw` 与行进方向无关，
+> 详见 [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md) §9.1.1。
 
 ### 5. 采集航点
 

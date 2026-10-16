@@ -29,6 +29,51 @@ def drive(sequence, limit=50):
     return visited
 
 
+def test_following_waypoint_is_the_next_point_in_order():
+    sequence = PatrolSequence(make_waypoints(), loops=1, return_home=False)
+    assert sequence.next_goal().name == "home"
+    assert sequence.following_waypoint().name == "a"
+    sequence.on_arrival(sequence.next_goal())
+    assert sequence.next_goal().name == "a"
+    assert sequence.following_waypoint().name == "b"
+
+
+def test_following_waypoint_wraps_to_first_point_on_endless_loops():
+    sequence = PatrolSequence(make_waypoints(), loops=0, return_home=False)
+    sequence.on_arrival(sequence.next_goal())
+    sequence.on_arrival(sequence.next_goal())
+    assert sequence.next_goal().name == "b"
+    # 无限循环：b 之后回 home（点位表第一个）
+    assert sequence.following_waypoint().name == "home"
+
+
+def test_following_waypoint_is_none_on_last_loop_without_return_home():
+    sequence = PatrolSequence(make_waypoints(), loops=1, return_home=False)
+    sequence.on_arrival(sequence.next_goal())
+    sequence.on_arrival(sequence.next_goal())
+    assert sequence.next_goal().name == "b"
+    # 最后一圈的最后一个点，且不返航：没有下一段
+    assert sequence.following_waypoint() is None
+
+
+def test_following_waypoint_points_home_on_last_loop_with_return_home():
+    sequence = PatrolSequence(make_waypoints(), loops=1, return_home=True)
+    sequence.on_arrival(sequence.next_goal())
+    sequence.on_arrival(sequence.next_goal())
+    assert sequence.next_goal().name == "b"
+    assert sequence.following_waypoint().name == "home"
+
+
+def test_following_waypoint_is_none_while_returning():
+    sequence = PatrolSequence(make_waypoints(), loops=1, return_home=True)
+    sequence.on_arrival(sequence.next_goal())  # home
+    sequence.on_arrival(sequence.next_goal())  # a
+    sequence.on_arrival(sequence.next_goal())  # b -> 转入返航阶段
+    assert sequence.returning
+    assert sequence.next_goal().name == "home"
+    assert sequence.following_waypoint() is None
+
+
 def test_single_loop_visits_each_waypoint_then_stops():
     sequence = PatrolSequence(make_waypoints(), loops=1, return_home=False)
     assert drive(sequence) == ["home", "a", "b"]

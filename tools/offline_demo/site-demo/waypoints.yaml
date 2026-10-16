@@ -5,11 +5,16 @@
 # 注意：patrol_manager 用 waypoints[0] 作为低电量返航点，所以 home 必须排第一。
 # dwell 是"到点停留"秒数：离线演示压到 1s 以内，避免看起来总是停一下；
 # 现场需要拍照/读数就往大调（或用 site.yaml 的 dwell_override 统一覆盖）。
+#
+# yaw 与 yaw_mode：站点 site.yaml 设了 yaw_mode: travel（到点朝进点方向），
+# 所以下面几个纯路口的 yaw 只是"没被用到的兜底值"；要正对某个方向拍照的点，
+# 单独加 yaw_mode: fixed，那个点就会老老实实转到 yaw。
 waypoints:
   - name: home
     x: 0.0
     y: 0.0
     yaw: 0.0
+    yaw_mode: fixed       # 返航点要求停正，正对 +x
     dwell: 0.8
     speech: home
     home: true
@@ -47,5 +52,6 @@ waypoints:
     x: 0.5
     y: 1.5
     yaw: 0.0
+    yaw_mode: fixed       # 巡检要正对设备，这里是"必须转身"的点
     dwell: 1.5
     speech: equipment_zone

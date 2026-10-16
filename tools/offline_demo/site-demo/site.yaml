@@ -35,3 +35,6 @@ patrol:
   turn_speech_min_interval: 6.0
   # 距目标 1.2m 就播该点语音，到点时已经播完 → 没有"停下再说话"的停顿感
   speech_lead_distance: 1.2
+  # 到点朝向跟随行进方向：路口不再"先转 180° 再转身 90°"。
+  # 需要正对目标拍照的点在 waypoints.yaml 里单独写 yaw_mode: fixed。
+  yaw_mode: travel

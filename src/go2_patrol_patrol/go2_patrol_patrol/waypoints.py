@@ -13,6 +13,11 @@ class Waypoint:
     dwell: float = 4.0
     speech: str = ""
     home: bool = False
+    # 到点朝向策略；留空 = 用节点的 yaw_mode 参数：
+    #   fixed  用本文件的 yaw（默认，适合"要正对设备拍照"的点）
+    #   travel 朝进点方向（到点不用转身，路口推荐）
+    #   next   朝下一段方向（起步不用转身）
+    yaw_mode: str = ""
 
 
 def quaternion_yaw(q) -> float:

@@ -226,6 +226,7 @@ def write_site_env(site_dir: str, name: str, cfg: dict) -> str:
         ("turn_speech_min_interval", "GO2_PATROL_TURN_SPEECH_MIN_INTERVAL"),
         ("speech_lead_distance", "GO2_PATROL_SPEECH_LEAD_DISTANCE"),
         ("dwell_override", "GO2_PATROL_DWELL_OVERRIDE"),
+        ("yaw_mode", "GO2_PATROL_YAW_MODE"),
     ):
         if key in patrol and patrol[key] is not None:
             value = patrol[key]

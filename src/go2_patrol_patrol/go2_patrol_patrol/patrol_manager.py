@@ -34,7 +34,7 @@ COLOR_DONE = (0.2, 0.9, 0.3, 0.9)      # 已到达：绿
 COLOR_HOME = (1.0, 0.3, 0.3, 0.9)      # 返航点：红
 
 
-def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
+def pose_message(navigator: BasicNavigator, waypoint: Waypoint, yaw: float = None) -> PoseStamped:
     pose = PoseStamped()
     pose.header.frame_id = (
         navigator.get_parameter("map_frame").value
@@ -45,8 +45,9 @@ def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
     pose.pose.position.x = waypoint.x
     pose.pose.position.y = waypoint.y
     pose.pose.position.z = 0.0
-    pose.pose.orientation.z = math.sin(waypoint.yaw * 0.5)
-    pose.pose.orientation.w = math.cos(waypoint.yaw * 0.5)
+    goal_yaw = waypoint.yaw if yaw is None else yaw
+    pose.pose.orientation.z = math.sin(goal_yaw * 0.5)
+    pose.pose.orientation.w = math.cos(goal_yaw * 0.5)
     return pose
 
 
@@ -65,6 +66,8 @@ class PatrolManager(Node):
         self.declare_parameter("speech_lead_distance", 0.0)
         # ≥0 时覆盖点位自身的 dwell（秒），用于统一压低"到点停留"
         self.declare_parameter("dwell_override", -1.0)
+        # 到点朝向策略：fixed 用点位 yaw / travel 朝进点方向 / next 朝下一段方向
+        self.declare_parameter("yaw_mode", "fixed")
 
         self.navigator = BasicNavigator()
         self.navigator.waitUntilNav2Active(localizer="amcl")
@@ -79,6 +82,7 @@ class PatrolManager(Node):
         )
         self.speech_lead_distance = float(self.get_parameter("speech_lead_distance").value)
         self.dwell_override = float(self.get_parameter("dwell_override").value)
+        self.yaw_mode = str(self.get_parameter("yaw_mode").value).strip().lower() or "fixed"
         self.waypoints = load_waypoints(path)
         self.sequence = PatrolSequence(
             self.waypoints,
@@ -132,7 +136,7 @@ class PatrolManager(Node):
             f"巡检任务就绪：点位 {len(self.waypoints)} 个，{self.sequence.describe()}，"
             f"低电量阈值 {self.battery_low:.0f}%，到点期望容差 {self.arrival_tolerance:.2f}m，"
             f"转弯提醒 {self.turn_speech or '关闭'}（|w|≥{self.turn_speech_w:.2f}），"
-            f"提前播报 {self.speech_lead_distance:.2f}m"
+            f"提前播报 {self.speech_lead_distance:.2f}m，到点朝向 {self.yaw_mode}"
         )
 
     # ---------------------------------------------------------------- 播报
@@ -307,13 +311,42 @@ class PatrolManager(Node):
         self.get_logger().info(f"收到停止请求（{reason}）")
 
     # ---------------------------------------------------------------- 调度
+    def goal_yaw(self, waypoint: Waypoint) -> float:
+        """按 yaw_mode 决定目标朝向，避免"到点先转 180°、起步再转回来"。
+
+        现场反馈"走到角落总是原地转半天"的根因就是点位 yaw 与行进方向无关：
+        每到一个角要转到位（最多 180°）再转身去下一段（再 90°），一圈白转几百米角度。
+        travel/next 让朝向跟随实际行进方向，只在真正需要对准的点（如正对设备拍照）用 fixed。
+        """
+        mode = (waypoint.yaw_mode or self.yaw_mode or "fixed").strip().lower()
+        if mode in ("travel", "incoming"):
+            if self.amcl_pose is not None:
+                dx = waypoint.x - self.amcl_pose[0]
+                dy = waypoint.y - self.amcl_pose[1]
+                if math.hypot(dx, dy) > 0.15:
+                    return math.atan2(dy, dx)
+            return waypoint.yaw
+        if mode in ("next", "outgoing", "next_leg"):
+            following = self.sequence.following_waypoint()
+            if following is not None:
+                dx = following.x - waypoint.x
+                dy = following.y - waypoint.y
+                if math.hypot(dx, dy) > 0.05:
+                    return math.atan2(dy, dx)
+            return waypoint.yaw
+        return waypoint.yaw
+
     def send_goal(self, waypoint: Waypoint):
-        self.navigator.goToPose(pose_message(self.navigator, waypoint))
+        yaw = self.goal_yaw(waypoint)
+        self.navigator.goToPose(pose_message(self.navigator, waypoint, yaw))
         self.current_goal = True
         self.active_waypoint = waypoint
         self.lead_spoken = False
         self.publish_markers()
-        self.get_logger().info(f"前往 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f})")
+        self.get_logger().info(
+            f"前往 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f})"
+            f"，到点朝向 {math.degrees(yaw):.0f}°"
+        )
 
     def tick(self):
         if self.finished:

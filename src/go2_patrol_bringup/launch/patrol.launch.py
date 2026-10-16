@@ -53,6 +53,7 @@ def generate_launch_description():
                 "dwell_override": ParameterValue(
                     LaunchConfiguration("dwell_override"), value_type=float
                 ),
+                "yaw_mode": LaunchConfiguration("yaw_mode"),
             }
         ],
         output="screen",
@@ -105,6 +106,11 @@ def generate_launch_description():
                 "dwell_override",
                 default_value="-1.0",
                 description="≥0 时统一覆盖点位 dwell（秒），用于压低到点停留",
+            ),
+            DeclareLaunchArgument(
+                "yaw_mode",
+                default_value="fixed",
+                description="到点朝向：fixed 用点位 yaw / travel 朝进点方向 / next 朝下一段方向",
             ),
             navigation,
             voice,
