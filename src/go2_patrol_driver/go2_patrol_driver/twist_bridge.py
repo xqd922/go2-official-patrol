@@ -35,6 +35,11 @@ class TwistBridge(Node):
 
     def __init__(self):
         super().__init__("go2_twist_bridge")
+        # 安全开关：离线 demo 会把本节点置为 false，此时它不订阅 /cmd_vel，
+        # 也不创建 /api/sport/request 发布者，彻底杜绝离线误发真机运动命令。
+        # 真机 launch 不传该参数，保持默认 True，行为完全不变。
+        self.declare_parameter("enable_sport_output", True)
+        self.enable_sport_output = bool(self.get_parameter("enable_sport_output").value)
         self.declare_parameter("max_linear", 0.7)
         self.declare_parameter("max_angular", 1.0)
         self.declare_parameter("scan_topic", "/scan")
@@ -55,6 +60,14 @@ class TwistBridge(Node):
 
         self.commands_sent = 0
         self.last_emergency = self.get_clock().now() - rclpy.duration.Duration(seconds=10.0)
+        if not self.enable_sport_output:
+            # 离线模式：完全不接 /cmd_vel，不建 /api/sport/request 发布者。
+            self.get_logger().warn(
+                "enable_sport_output=false：离线模式已禁用 Go2 运动输出，"
+                "不会向 /api/sport/request 发送任何命令"
+            )
+            self.pub_request = None
+            return
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd_vel, 10)
         self.create_subscription(LaserScan, gp("scan_topic").value, self.on_scan, 10)
         self.pub_request = self.create_publisher(Request, "/api/sport/request", 10)

@@ -16,7 +16,12 @@ def generate_launch_description():
     )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(bringup, "launch", "navigation.launch.py")),
-        launch_arguments={"map": LaunchConfiguration("map")}.items(),
+        # driver:=false：本文件已经 include 过 driver.launch.py，navigation 内部
+        # 不能再起第二套 odom_bridge / TF / twist_bridge。
+        launch_arguments={
+            "map": LaunchConfiguration("map"),
+            "driver": "false",
+        }.items(),
     )
     voice = Node(package="go2_patrol_patrol", executable="voice_player", output="screen")
     timer = Node(

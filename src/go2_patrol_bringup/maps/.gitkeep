@@ -1,0 +1,2 @@
+# 该文件只为让 git 保留 maps/ 目录，使 colcon/symlink-install 能正确建立
+# install/share/go2_patrol_bringup/maps 的符号链接。不要删除。

@@ -13,6 +13,11 @@ from std_srvs.srv import Trigger
 from go2_patrol_patrol.waypoints import Waypoint, load_waypoints
 
 
+IDLE = "IDLE"
+RUNNING = "RUNNING"
+PAUSED = "PAUSED"
+
+
 def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
     pose = PoseStamped()
     pose.header.frame_id = navigator.get_parameter("map_frame").value if navigator.has_parameter("map_frame") else "map"
@@ -33,9 +38,17 @@ class PatrolManager(Node):
         self.declare_parameter("return_home", True)
         self.declare_parameter("battery_low", 20.0)
         self.declare_parameter("arrival_tolerance", 0.30)
+        # 离线链路没有 AMCL（定位由静态 map->odom + 真值里程计提供），
+        # 此时 waitUntilNav2Active 不能再等 amcl/get_state，否则永久阻塞。
+        # 真机默认仍是 amcl，行为不变。
+        self.declare_parameter("localizer", "amcl")
 
         self.navigator = BasicNavigator()
-        self.navigator.waitUntilNav2Active(localizer="amcl")
+        localizer = self.get_parameter("localizer").value
+        if localizer == "":
+            # 离线：跳过定位节点等待，只等导航栈可用。
+            localizer = "bt_navigator"
+        self.navigator.waitUntilNav2Active(localizer=localizer)
 
         path = self.get_parameter("waypoints_file").value
         self.loop_count = int(self.get_parameter("loops").value)
@@ -46,8 +59,9 @@ class PatrolManager(Node):
         self.loop_index = 0
         self.waypoint_index = 0
         self.spoken = set()
-        self.paused = False
-        self.stopped = False
+        # 单一状态字段：IDLE / RUNNING / PAUSED，替代原来的 paused+stopped 组合。
+        # 构造完成后处于 IDLE，必须调用 /patrol/start 才开始巡检。
+        self.state = IDLE
         self.low_battery = False
         self.current_goal = None
         self.dwell_until = self.get_clock().now()
@@ -84,37 +98,70 @@ class PatrolManager(Node):
         percentage = message.percentage * 100.0 if message.percentage <= 1.0 else message.percentage
         if not self.low_battery and percentage <= self.battery_low:
             self.low_battery = True
-            self.navigator.cancelTask()
+            if self.current_goal:
+                self.navigator.cancelTask()
 
     def on_start(self, request, response):
-        self.paused = False
-        self.stopped = False
+        if self.state == RUNNING:
+            response.success = False
+            response.message = "patrol already running"
+            return response
+        if self.state == PAUSED:
+            # 从暂停恢复，保留当前航点进度。
+            self.state = RUNNING
+            response.success = True
+            response.message = "patrol resumed"
+            return response
+        # IDLE：开始新一轮巡检，复位进度。
+        self.reset_run()
+        self.state = RUNNING
         response.success = True
         response.message = "patrol started"
         return response
 
     def on_pause(self, request, response):
+        if self.state != RUNNING:
+            response.success = False
+            response.message = f"cannot pause: patrol is {self.state.lower()}"
+            return response
         if self.current_goal:
             self.navigator.cancelTask()
-        self.paused = True
+        self.state = PAUSED
         response.success = True
         response.message = "paused"
         return response
 
     def on_resume(self, request, response):
-        self.paused = False
+        if self.state != PAUSED:
+            response.success = False
+            response.message = f"cannot resume: patrol is {self.state.lower()}"
+            return response
+        self.state = RUNNING
         response.success = True
         response.message = "resumed"
         return response
 
     def on_stop(self, request, response):
+        if self.state == IDLE:
+            response.success = False
+            response.message = "patrol already idle"
+            return response
         if self.current_goal:
             self.navigator.cancelTask()
-        self.stopped = True
-        self.paused = False
+        self.reset_run()
+        self.state = IDLE
         response.success = True
         response.message = "stopped"
         return response
+
+    def reset_run(self):
+        """清除当前巡检进度，回到可重新 start 的干净状态。"""
+        self.loop_index = 0
+        self.waypoint_index = 0
+        self.spoken = set()
+        self.low_battery = False
+        self.current_goal = None
+        self.dwell_until = self.get_clock().now()
 
     def send_goal(self, waypoint: Waypoint):
         goal = pose_message(self.navigator, waypoint)
@@ -122,11 +169,7 @@ class PatrolManager(Node):
         self.current_goal = True
 
     def tick(self):
-        if self.stopped:
-            self.navigator.lifecycleShutdown()
-            rclpy.shutdown()
-            return
-        if self.paused:
+        if self.state != RUNNING:
             return
 
         if self.get_clock().now() < self.dwell_until:
@@ -152,7 +195,7 @@ class PatrolManager(Node):
                 self.loop_index += 1
                 self.waypoint_index = 0
             if self.loop_count > 0 and self.loop_index >= self.loop_count:
-                self.stopped = True
+                self.state = IDLE
         elif result == TaskResult.FAILED:
             self.get_logger().warn("navigation goal failed; retrying")
 

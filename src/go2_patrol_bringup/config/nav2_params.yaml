@@ -14,12 +14,26 @@ amcl:
     min_particles: 300
     max_particles: 1000
 
+# map_server 段必须存在：nav2_bringup 用 RewrittenYaml 的 param_rewrites
+# 注入 yaml_filename，而 RewrittenYaml 只重写“已存在”的键。若本节缺失，
+# yaml_filename 不会被写入，map_server configure 时报
+# "parameter 'yaml_filename' is not initialized"。
+# 这里只放占位值，真实地图路径仍由 navigation.launch.py 的 map 参数经
+# bringup_launch.py 的 'yaml_filename': map_yaml_file 覆盖，因此不写死绝对路径。
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: ""
+
 bt_navigator:
   ros__parameters:
     global_frame: map
     robot_base_frame: base_footprint
     odom_topic: /odom
-    default_nav_to_pose_bt_xml: ""
+    # 不要在这里给空的 default_nav_to_pose_bt_xml：空串会覆盖 Nav2 内置的
+    # 默认行为树路径，bt_navigator 收到目标后报 "Behavior tree threw
+    # exception: Empty Tree"，所有导航目标立刻失败。删除该键即可使用
+    # Nav2 自带行为树（navigate_to_pose_w_replanning_and_recovery.xml）。
 
 controller_server:
   ros__parameters:
@@ -30,8 +44,11 @@ controller_server:
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
     progress_checker_plugin: progress_checker
-    goal_checker_plugins: goal_checker
-    controller_plugins: FollowPath
+    # 这两个参数在 Nav2 Humble 中是 string_array，必须写成列表。
+    # 写成标量字符串会抛参数类型错误，导致 controller_server 组件构造失败、
+    # 整个 navigation lifecycle 起不来。列表元素名与下方参数块名一致。
+    goal_checker_plugins: [goal_checker]
+    controller_plugins: [FollowPath]
     progress_checker:
       plugin: nav2_controller::SimpleProgressChecker
       required_movement_radius: 0.2
@@ -88,6 +105,14 @@ local_costmap:
           obstacle_min_range: 0.15
           raytrace_max_range: 6.0
           raytrace_min_range: 0.15
+      # plugins 列表里已经引用了 inflation_layer，这里必须给出对应的参数块。
+      # 缺失时 costmap 抛 "Can not get 'plugin' param value for inflation_layer"，
+      # 直接导致 nav2_container 进程退出（exit 255），整套 Nav2 起不来。
+      # 取值与 global_costmap 保持一致，不在此处调整避障手感。
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.45
+        cost_scaling_factor: 5.0
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_subscribe_transient_local: true
@@ -124,3 +149,22 @@ global_costmap:
         inflation_radius: 0.45
         cost_scaling_factor: 5.0
       always_send_full_costmap: true
+
+# velocity_smoother 段：nav2 默认 bringup 会把 controller_server 的 cmd_vel
+# 重映射到 /cmd_vel_nav，再经 velocity_smoother 平滑后以 /cmd_vel 输出。
+# 缺这一段时该节点会用内置默认值继续工作，但显式给出与 Nav2 默认一致的
+# 限幅参数，便于排查，并且不改变任何真机速度上限（下面取值即上表的默认值）。
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: false
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: OPEN_LOOP
+    max_velocity: [0.5, 0.0, 0.8]
+    min_velocity: [-0.5, 0.0, -0.8]
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
+    odom_topic: /odom
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
