@@ -1,0 +1,13 @@
+{
+  "_comment": "speech_id -> 中文播报话术。改这里，然后跑 deploy/tools/make_voice_wavs.ps1 -OutDir <站点>/audio 生成同名 wav。",
+  "home": "返回起点，巡检结束",
+  "entrance": "到达入口，请注意",
+  "zone_ne": "东北区域，检查完毕",
+  "zone_se": "东南区域，检查完毕",
+  "zone_sw": "西南区域，检查完毕",
+  "zone_nw": "西北区域，检查完毕",
+  "equipment_zone": "设备区域，请重点检查",
+  "turn_careful": "转弯，请注意安全",
+  "low_battery": "电量偏低，正在返回起点",
+  "return_home": "正在返回起点"
+}

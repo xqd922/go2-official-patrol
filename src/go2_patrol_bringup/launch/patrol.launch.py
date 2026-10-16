@@ -40,6 +40,19 @@ def generate_launch_description():
                 "arrival_tolerance": ParameterValue(
                     LaunchConfiguration("arrival_tolerance"), value_type=float
                 ),
+                "turn_speech": LaunchConfiguration("turn_speech"),
+                "turn_speech_w": ParameterValue(
+                    LaunchConfiguration("turn_speech_w"), value_type=float
+                ),
+                "turn_speech_min_interval": ParameterValue(
+                    LaunchConfiguration("turn_speech_min_interval"), value_type=float
+                ),
+                "speech_lead_distance": ParameterValue(
+                    LaunchConfiguration("speech_lead_distance"), value_type=float
+                ),
+                "dwell_override": ParameterValue(
+                    LaunchConfiguration("dwell_override"), value_type=float
+                ),
             }
         ],
         output="screen",
@@ -68,6 +81,31 @@ def generate_launch_description():
             DeclareLaunchArgument("return_home", default_value="true"),
             DeclareLaunchArgument("battery_low", default_value="20.0"),
             DeclareLaunchArgument("arrival_tolerance", default_value="0.30"),
+            DeclareLaunchArgument(
+                "turn_speech",
+                default_value="",
+                description="转弯提醒语音 id（audio/<id>.wav）；空=关闭",
+            ),
+            DeclareLaunchArgument(
+                "turn_speech_w",
+                default_value="0.30",
+                description="触发转弯提醒的角速度阈值（rad/s）",
+            ),
+            DeclareLaunchArgument(
+                "turn_speech_min_interval",
+                default_value="6.0",
+                description="两次转弯提醒的最小间隔（秒）",
+            ),
+            DeclareLaunchArgument(
+                "speech_lead_distance",
+                default_value="0.0",
+                description="距目标多少米时提前播报该点语音；0=到点才播",
+            ),
+            DeclareLaunchArgument(
+                "dwell_override",
+                default_value="-1.0",
+                description="≥0 时统一覆盖点位 dwell（秒），用于压低到点停留",
+            ),
             navigation,
             voice,
             timer,

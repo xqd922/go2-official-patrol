@@ -53,6 +53,21 @@ fi
 if [ -n "${GO2_PATROL_ARRIVAL_TOLERANCE:-}" ]; then
   LAUNCH_ARGS+=("arrival_tolerance:=${GO2_PATROL_ARRIVAL_TOLERANCE}")
 fi
+if [ -n "${GO2_PATROL_TURN_SPEECH:-}" ]; then
+  LAUNCH_ARGS+=("turn_speech:=${GO2_PATROL_TURN_SPEECH}")
+fi
+if [ -n "${GO2_PATROL_TURN_SPEECH_W:-}" ]; then
+  LAUNCH_ARGS+=("turn_speech_w:=${GO2_PATROL_TURN_SPEECH_W}")
+fi
+if [ -n "${GO2_PATROL_TURN_SPEECH_MIN_INTERVAL:-}" ]; then
+  LAUNCH_ARGS+=("turn_speech_min_interval:=${GO2_PATROL_TURN_SPEECH_MIN_INTERVAL}")
+fi
+if [ -n "${GO2_PATROL_SPEECH_LEAD_DISTANCE:-}" ]; then
+  LAUNCH_ARGS+=("speech_lead_distance:=${GO2_PATROL_SPEECH_LEAD_DISTANCE}")
+fi
+if [ -n "${GO2_PATROL_DWELL_OVERRIDE:-}" ]; then
+  LAUNCH_ARGS+=("dwell_override:=${GO2_PATROL_DWELL_OVERRIDE}")
+fi
 
 echo "[run_site] 站点=${SITE} 目录=${SITE_DIR}"
 echo "[run_site] ros2 launch go2_patrol_bringup patrol.launch.py ${LAUNCH_ARGS[*]}"

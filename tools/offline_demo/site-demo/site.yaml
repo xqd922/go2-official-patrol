@@ -29,3 +29,9 @@ patrol:
   return_home: true
   battery_low: 20.0
   arrival_tolerance: 0.30
+  # 行进中播报：一进弯道就播 turn_careful.wav（边走边说，不等停下来）
+  turn_speech: turn_careful
+  turn_speech_w: 0.30
+  turn_speech_min_interval: 6.0
+  # 距目标 1.2m 就播该点语音，到点时已经播完 → 没有"停下再说话"的停顿感
+  speech_lead_distance: 1.2

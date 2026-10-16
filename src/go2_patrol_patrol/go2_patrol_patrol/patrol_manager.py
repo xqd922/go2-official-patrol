@@ -8,6 +8,7 @@ import math
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from nav_msgs.msg import Odometry
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -57,6 +58,13 @@ class PatrolManager(Node):
         self.declare_parameter("return_home", True)
         self.declare_parameter("battery_low", 20.0)
         self.declare_parameter("arrival_tolerance", 0.30)
+        # 行进中播报：转弯提醒 + 到点语音提前播，避免"停下来说话"的停顿感
+        self.declare_parameter("turn_speech", "")
+        self.declare_parameter("turn_speech_w", 0.30)
+        self.declare_parameter("turn_speech_min_interval", 6.0)
+        self.declare_parameter("speech_lead_distance", 0.0)
+        # ≥0 时覆盖点位自身的 dwell（秒），用于统一压低"到点停留"
+        self.declare_parameter("dwell_override", -1.0)
 
         self.navigator = BasicNavigator()
         self.navigator.waitUntilNav2Active(localizer="amcl")
@@ -64,6 +72,13 @@ class PatrolManager(Node):
         path = self.get_parameter("waypoints_file").value
         self.battery_low = float(self.get_parameter("battery_low").value)
         self.arrival_tolerance = float(self.get_parameter("arrival_tolerance").value)
+        self.turn_speech = str(self.get_parameter("turn_speech").value).strip()
+        self.turn_speech_w = float(self.get_parameter("turn_speech_w").value)
+        self.turn_speech_min_interval = float(
+            self.get_parameter("turn_speech_min_interval").value
+        )
+        self.speech_lead_distance = float(self.get_parameter("speech_lead_distance").value)
+        self.dwell_override = float(self.get_parameter("dwell_override").value)
         self.waypoints = load_waypoints(path)
         self.sequence = PatrolSequence(
             self.waypoints,
@@ -79,6 +94,11 @@ class PatrolManager(Node):
         self.active_waypoint = None
         self.amcl_pose = None
         self.dwell_until = self.get_clock().now()
+        self.linear_speed = 0.0
+        self.angular_speed = 0.0
+        self.turning = False
+        self.turn_speech_until = 0
+        self.lead_spoken = False
         self.visited: set[int] = set()   # 本圈已到达的点位下标（用于 RViz 标记着色）
         self.shown_loop = 0
 
@@ -98,6 +118,8 @@ class PatrolManager(Node):
         self.create_subscription(
             PoseWithCovarianceStamped, "/amcl_pose", self.on_pose, qos_profile_sensor_data
         )
+        # /odom 只用来判断"现在是不是在转弯"，用于行进中播报（不参与导航决策）
+        self.create_subscription(Odometry, "/odom", self.on_odom, 20)
         self.create_service(Trigger, "/patrol/start", self.on_start)
         self.create_service(Trigger, "/patrol/pause", self.on_pause)
         self.create_service(Trigger, "/patrol/resume", self.on_resume)
@@ -108,7 +130,9 @@ class PatrolManager(Node):
             self.get_logger().error(f"{path} 里没有点位，巡检无事可做")
         self.get_logger().info(
             f"巡检任务就绪：点位 {len(self.waypoints)} 个，{self.sequence.describe()}，"
-            f"低电量阈值 {self.battery_low:.0f}%，到点期望容差 {self.arrival_tolerance:.2f}m"
+            f"低电量阈值 {self.battery_low:.0f}%，到点期望容差 {self.arrival_tolerance:.2f}m，"
+            f"转弯提醒 {self.turn_speech or '关闭'}（|w|≥{self.turn_speech_w:.2f}），"
+            f"提前播报 {self.speech_lead_distance:.2f}m"
         )
 
     # ---------------------------------------------------------------- 播报
@@ -157,11 +181,61 @@ class PatrolManager(Node):
             markers.markers.append(label)
         self.pub_markers.publish(markers)
 
+    def say_id(self, speech_id: str, tag: str = ""):
+        """只发 /robot/say，不等播放结束：voice_player 在线程里播，不阻塞导航。"""
+        if not speech_id:
+            return
+        message = String()
+        message.data = speech_id
+        self.pub_say.publish(message)
+        suffix = f"（{tag}）" if tag else ""
+        self.get_logger().info(f"播报 {speech_id}{suffix}")
+
     def say(self, waypoint: Waypoint):
         """每个点到点播报一次（多圈巡检每圈都会播）。"""
-        message = String()
-        message.data = waypoint.speech or waypoint.name
-        self.pub_say.publish(message)
+        self.say_id(waypoint.speech or waypoint.name, "到点")
+
+    def maybe_lead_speech(self):
+        """距目标还有 speech_lead_distance 米时先播报，别等停下来再说。"""
+        waypoint = self.active_waypoint
+        if waypoint is None or self.lead_spoken or self.speech_lead_distance <= 0.0:
+            return
+        if self.amcl_pose is None:
+            return
+        distance = math.hypot(self.amcl_pose[0] - waypoint.x, self.amcl_pose[1] - waypoint.y)
+        if distance <= self.speech_lead_distance:
+            self.lead_spoken = True
+            self.say_id(
+                waypoint.speech or waypoint.name,
+                f"提前播报，距 {waypoint.name} {distance:.2f}m",
+            )
+
+    def on_odom(self, message: Odometry):
+        self.linear_speed = math.hypot(
+            message.twist.twist.linear.x, message.twist.twist.linear.y
+        )
+        self.angular_speed = message.twist.twist.angular.z
+        self.maybe_turn_speech()
+
+    def maybe_turn_speech(self):
+        """进入转弯的瞬间播一次提醒，带冷却；人还在走，所以听起来"边走边说"。"""
+        turning = self.current_goal and abs(self.angular_speed) >= self.turn_speech_w
+        if not turning:
+            self.turning = False      # 退出转弯，允许下一个弯再播
+            return
+        if self.turning:              # 同一个弯道只播一次
+            return
+        self.turning = True
+        if not self.turn_speech or self.paused or self.stop_requested:
+            return
+        now = self.get_clock().now().nanoseconds
+        if now < self.turn_speech_until:
+            return
+        self.turn_speech_until = now + int(self.turn_speech_min_interval * 1e9)
+        self.say_id(
+            self.turn_speech,
+            f"转弯提醒 v={self.linear_speed:.2f}m/s w={self.angular_speed:+.2f}rad/s",
+        )
 
     def log_arrival(self, waypoint: Waypoint):
         if self.amcl_pose is None:
@@ -237,6 +311,7 @@ class PatrolManager(Node):
         self.navigator.goToPose(pose_message(self.navigator, waypoint))
         self.current_goal = True
         self.active_waypoint = waypoint
+        self.lead_spoken = False
         self.publish_markers()
         self.get_logger().info(f"前往 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f})")
 
@@ -260,6 +335,7 @@ class PatrolManager(Node):
             return
 
         if not self.navigator.isTaskComplete():
+            self.maybe_lead_speech()
             return
 
         result = self.navigator.getResult()
@@ -270,9 +346,11 @@ class PatrolManager(Node):
             return
 
         if result == TaskResult.SUCCEEDED:
-            self.say(waypoint)
+            if not self.lead_spoken:      # 已经提前播过就不重复播
+                self.say(waypoint)
             self.log_arrival(waypoint)
-            self.dwell_until = self.get_clock().now() + Duration(seconds=waypoint.dwell)
+            dwell = self.dwell_override if self.dwell_override >= 0.0 else waypoint.dwell
+            self.dwell_until = self.get_clock().now() + Duration(seconds=dwell)
             index = self.waypoints.index(waypoint)
             self.sequence.on_arrival(waypoint)
             if self.sequence.loop_index != self.shown_loop:

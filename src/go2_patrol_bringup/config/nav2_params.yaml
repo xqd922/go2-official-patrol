@@ -58,8 +58,9 @@ controller_server:
       min_lookahead_dist: 0.4
       max_lookahead_dist: 1.2
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.8
-      max_angular_accel: 1.5
+      # 到点/换段时的原地转向：转得快一点，减少"转弯处很慢"的停顿感
+      rotate_to_heading_angular_vel: 1.0
+      max_angular_accel: 2.0
       transform_tolerance: 0.1
       use_velocity_scaled_lookahead_dist: false
       use_costregulation: false

@@ -3,12 +3,14 @@
 # 可由 tools/offline_demo/check_site.py 复核；现场交付的点位必须现场标定。
 #
 # 注意：patrol_manager 用 waypoints[0] 作为低电量返航点，所以 home 必须排第一。
+# dwell 是"到点停留"秒数：离线演示压到 1s 以内，避免看起来总是停一下；
+# 现场需要拍照/读数就往大调（或用 site.yaml 的 dwell_override 统一覆盖）。
 waypoints:
   - name: home
     x: 0.0
     y: 0.0
     yaw: 0.0
-    dwell: 3.0
+    dwell: 0.8
     speech: home
     home: true
 
@@ -16,28 +18,28 @@ waypoints:
     x: 2.0
     y: 3.0
     yaw: 3.1416
-    dwell: 3.0
+    dwell: 0.8
     speech: zone_ne
 
   - name: zone_se
     x: 2.0
     y: -3.0
     yaw: 3.1416
-    dwell: 3.0
+    dwell: 0.8
     speech: zone_se
 
   - name: zone_sw
     x: -2.0
     y: -3.0
     yaw: 0.0
-    dwell: 3.0
+    dwell: 0.8
     speech: zone_sw
 
   - name: zone_nw
     x: -2.0
     y: 3.0
     yaw: 0.0
-    dwell: 3.0
+    dwell: 0.8
     speech: zone_nw
 
   # 设备区巡检点：停在木箱西侧 0.75m 处，朝 +x 正对障碍物
@@ -45,5 +47,5 @@ waypoints:
     x: 0.5
     y: 1.5
     yaw: 0.0
-    dwell: 4.0
+    dwell: 1.5
     speech: equipment_zone
