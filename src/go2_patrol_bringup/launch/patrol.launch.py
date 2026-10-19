@@ -54,6 +54,13 @@ def generate_launch_description():
                     LaunchConfiguration("dwell_override"), value_type=float
                 ),
                 "yaw_mode": LaunchConfiguration("yaw_mode"),
+                "goal_retry_limit": ParameterValue(
+                    LaunchConfiguration("goal_retry_limit"), value_type=int
+                ),
+                "goal_retry_delay": ParameterValue(
+                    LaunchConfiguration("goal_retry_delay"), value_type=float
+                ),
+                "on_goal_failure": LaunchConfiguration("on_goal_failure"),
             }
         ],
         output="screen",
@@ -111,6 +118,21 @@ def generate_launch_description():
                 "yaw_mode",
                 default_value="fixed",
                 description="到点朝向：fixed 用点位 yaw / travel 朝进点方向 / next 朝下一段方向",
+            ),
+            DeclareLaunchArgument(
+                "goal_retry_limit",
+                default_value="3",
+                description="同一目标连续失败几次后放弃（含首次，即最多尝试这么多次；默认 3）",
+            ),
+            DeclareLaunchArgument(
+                "goal_retry_delay",
+                default_value="5.0",
+                description="导航失败后的重试间隔（秒，默认 5）",
+            ),
+            DeclareLaunchArgument(
+                "on_goal_failure",
+                default_value="abort",
+                description="重试耗尽后怎么办：abort 终止本次巡检 / skip 跳过该点继续",
             ),
             navigation,
             voice,
