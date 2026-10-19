@@ -135,16 +135,28 @@ waypoints:
 ```bash
 ros2 launch go2_patrol_bringup patrol.launch.py
 
-ros2 service call /patrol/start  std_srvs/srv/Trigger   # 开始
-ros2 service call /patrol/pause  std_srvs/srv/Trigger   # 暂停
+# patrol.launch.py 起完就自动开跑了，不需要再发一条"开始"：
+ros2 service call /patrol/start  std_srvs/srv/Trigger   # 取消暂停（正常启动时调它没用）
+ros2 service call /patrol/pause  std_srvs/srv/Trigger   # 暂停（会取消当前目标，resume 后重发）
 ros2 service call /patrol/resume std_srvs/srv/Trigger   # 继续
-ros2 service call /patrol/stop   std_srvs/srv/Trigger   # 停止
+ros2 service call /patrol/stop   std_srvs/srv/Trigger   # 终止本次巡检（不可恢复）
 ```
+
+> `/patrol/stop` 与跑完一圈都会结束本次巡检：节点继续活着但不再动作，
+> 这时 `/patrol/start` 返回 `success=false` 并说明原因——要重新巡检请重启 launch /
+> `systemctl restart`，长期无人值守把 `loops` 设成 0。
 
 常用 launch 参数：`loops`（圈数，0=无限）、`return_home`（默认 true）、
 `battery_low`（低电量阈值，默认 20%）、`arrival_tolerance`（到点容差，默认 0.30m）、
 `yaw_mode`（到点朝向：`fixed`/`travel`/`next`，路口用 `travel` 可显著减少原地转）、
+`goal_retry_limit` / `goal_retry_delay` / `on_goal_failure`（失败策略：同一目标连续失败 3 次
+（含首次，即最多尝试 3 次）、每次间隔 5s、仍失败则 `abort` 终止本次巡检）、
 `rviz`、`map`、`params_file`、`waypoints_file`、`audio_dir`。
+
+驱动侧参数（默认取环境变量 `GO2_<参数名大写>`，例如 `max_linear` ← `GO2_MAX_LINEAR`；
+生产站点由 `site.yaml` 的 `safety:` / `env:` 段生成，`run_site.sh` 以 `set -a` 导出）：
+`max_linear`、`max_angular`、`front_half_angle_deg`、`emergency_distance`、`stop_distance`、
+`slow_distance`、`cmd_vel_timeout`、`require_scan`、`scan_timeout`、`base_footprint_tf`。
 
 > 走到角落"原地转半天"多半不是定位问题，而是点位 `yaw` 与行进方向无关，
 > 详见 [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md) §9.1.1。
@@ -158,6 +170,9 @@ ros2 run go2_patrol_patrol record_waypoint entrance
 ```
 
 它打印一段可直接粘进 `waypoints.yaml` 的 YAML，再补 `speech` 和 `dwell` 即可。
+坐标采自 `/amcl_pose`（**map 帧**，与 `patrol_manager` 发目标用的坐标系一致）；
+只有显式加 `--allow-odom-fallback` 且 `/amcl_pose` 一直没数据时才会退回 `/odom`——
+那是 odom 帧的坐标，粘进去前必须自行核对。
 
 ## 生产交付（部署到另一台机器狗）
 
@@ -192,8 +207,13 @@ CI：push 到 `main` 或开 PR 时会跑 GitHub Actions（Humble 上 `colcon bui
 
 ## 真机联调须知（本仓库已修，改参数时别改回去）
 
-- **TF `base_footprint → base_link` 只能有一处发布**：机器人自身若已发这条 TF，就不要再用
-  `static_transform_publisher` 补链，重复发布会让 Nav2 报 TF 冲突。
+- **TF `base_footprint → base_link` 由 `tf_chain_guard` 按需补**：`odom_bridge` 只发
+  `odom → base_footprint`，`perception.launch.py` 只发 `base_link → utlidar_lidar`，
+  中间这一环在生产 launch 里原本没有发布者（TF 树断在这里 → 变不出 `/scan` → 导航起不来）。
+  驱动包里的 `tf_chain_guard` 默认 `mode=auto`：启动后先监听 5s，**没人发才补**，
+  发现机器狗自己已发就完全不插手（避免 Nav2 报 TF 冲突）。日志会写明依据；
+  现场想钉死行为就把站点 `site.yaml` 的 `env.GO2_BASE_FOOTPRINT_TF` 设成 `always`/`never`。
+  离线假狗一直自己补这一段，所以**离线验收测不出**这个问题，只有真机才暴露。
 - **`nav2_params.yaml` 的四个坑**：
   1. 必须有 `map_server` 的 `yaml_filename` 段——`RewrittenYaml` 只改写**已存在**的 key，
      缺段会让地图路径永远注入不进去，localization 启动即 `parameter 'yaml_filename' is not initialized`；
@@ -203,7 +223,24 @@ CI：push 到 `main` 或开 PR 时会跑 GitHub Actions（Humble 上 `colcon bui
      配置块，否则 costmap 插件加载 FATAL、`nav2_container` 段错误，整栈全崩（真机同样崩）；
   4. `bt_navigator.default_nav_to_pose_bt_xml` 不要写成空串——空串不等于"用默认值"，
      而是加载空文件 → `Empty Tree` → 所有导航目标必然失败。要用内置默认行为树就**删掉这一行**。
-- **急停阈值与速度上限按现场地面/负载复核**，见 [`docs/生产交付手册.md`](docs/生产交付手册.md) 第 11 节。
+- **前置急停有"扫描断流"看门狗**：`twist_bridge` 在超过 `scan_timeout`（默认 1s）没收到新
+  `/scan` 时会**停车并告警**，而不是把"没有扫描"当成"前方畅通"继续走。无雷达的台架才允许
+  用 `GO2_REQUIRE_SCAN=false` 关掉（等于放弃这层保护）。
+- **导航失败会退避重试、并最终表态**：失败后等 `goal_retry_delay`（默认 5s）重试，
+  连续 `goal_retry_limit`（默认 3）次仍失败则按 `on_goal_failure` 处理——
+  默认 `abort` 终止本次巡检并在日志里给出排查步骤（`skip` 会跳过该点并告警，慎用）。
+  旧实现只打一行 warn 就立刻重发，点位不可达时会每 0.5s 重发一次、无限刷屏。
+- **`/cmd_vel` 断流也会补一脚刹车**：官方 `MOVE` 是"保持最后一次速度"，所以导航栈退出、
+  进程被杀、网络抖动都不会让狗自己停下（旧实现里狗会带着最后那条速度一直走）。`twist_bridge`
+  现在以 20Hz 兜底：收到过要求走的指令、之后超过 `cmd_vel_timeout`（默认 0.5s）没有新 `/cmd_vel`
+  就补发一次 `STOP_MOVE` 并告警；节点退出前同样补一脚。Nav2 正常停车时持续发零速度，不会误判。
+- **限速与急停阈值可以不改代码就调**：站点 `site.yaml` 的 `safety:` 段（速度上限、
+  `front_half_angle_deg`、急停/停车/减速距离、`cmd_vel_timeout`）由 `apply_site.sh` 写进
+  `site.env`，`run_site.sh` 以 `set -a` 导出给 `driver.launch.py`。三个距离必须递增
+  （急停 < 停车 < 减速；只写其中一两个时，缺的按驱动默认值参与比较），写反、写负、
+  非数字或与 `env:` 段重复定义都会被 `apply_site.sh` 的自检直接拒绝落地。
+- **装机后别跳过这步**：现场按实际地面与负载复核急停阈值与限速，
+  见 [`docs/生产交付手册.md`](docs/生产交付手册.md) 第 11 节。
 
 ## 可选扩展：反光条虚拟墙（测试项）
 
