@@ -218,8 +218,11 @@ def main(args=None):
     # 自己接管 SIGINT/SIGTERM：rclpy 默认的处理器会**先关掉 context** 再让 spin 返回，
     # 等走到 finally 时 publisher 已经失效（rcl_publish 返回 RCL_RET_PUBLISHER_INVALID），
     # 退出前那一脚刹车就发不出去——而 systemd 的 KillSignal 正是 SIGINT。
-    # 这里让 context 活到刹车发完为止（SignalHandlerOptions.NONE = 不装 rclpy 的处理器）。
-    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NONE)
+    # 这里让 context 活到刹车发完为止（SignalHandlerOptions.NO = 不装 rclpy 的处理器）。
+    # 注意成员名是 NO 不是 NONE：Humble 的枚举只有 ALL / SIGINT / SIGTERM / NO，
+    # 写成 NONE 会在节点启动第一行就 AttributeError 直接退出（launch 里表现为
+    # "process has died"），而 py_compile 检查不出来——必须真起一次 ROS 才会暴露。
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = TwistBridge()
     stopping = threading.Event()
 
