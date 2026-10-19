@@ -15,6 +15,29 @@
 # 注意：ROS 2 的 setup.bash 不兼容 set -u，本文件内部会临时关闭它。
 
 _go2_env_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 机器级配置（生产机由 install.sh 写入 /etc/go2/site.env，指定 GO2_SITES / GO2_IFACE）。
+# 必须在下面几条默认值之前读，否则手工执行 preflight.sh 之类会落到
+# <版本目录>/sites，而 systemd 找的是 /opt/go2/sites——两边看到的站点不是同一份。
+#
+# 但**调用方显式给的值优先**：apply_site.sh 会 `GO2_SITES=... bash preflight.sh`，
+# run_patrol_demo.sh 也会先 export GO2_SITES 再 source 本文件。机器级文件里的
+# 裸赋值会把它们顶掉（preflight 去校验另一个目录，离线演示直接 exit 3），
+# 所以先记下调用方的值，读完文件再恢复。
+# 用 `${VAR+x}` 而不是 `-n` 判"给过没有"：`GO2_SITES= deploy/run_site.sh demo`
+# 这种"显式清空"也是合法意图，只认非空的话它会静默被机器级值顶掉。
+if [ -f /etc/go2/site.env ]; then
+  _go2_sites_set="${GO2_SITES+x}"
+  _go2_caller_sites="${GO2_SITES:-}"
+  _go2_iface_set="${GO2_IFACE+x}"
+  _go2_caller_iface="${GO2_IFACE:-}"
+  # shellcheck disable=SC1091
+  source /etc/go2/site.env
+  if [ -n "$_go2_sites_set" ]; then export GO2_SITES="$_go2_caller_sites"; fi
+  if [ -n "$_go2_iface_set" ]; then export GO2_IFACE="$_go2_caller_iface"; fi
+fi
+unset _go2_caller_sites _go2_sites_set _go2_caller_iface _go2_iface_set
+
 export GO2_WS="${GO2_WS:-$(cd "${_go2_env_dir}/.." && pwd)}"
 export GO2_SITES="${GO2_SITES:-${GO2_WS}/sites}"
 unset _go2_env_dir

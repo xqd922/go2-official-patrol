@@ -6,5 +6,8 @@ sites/
 __pycache__/
 *.py[cod]
 
+# pytest 缓存（跑单测时在仓库根生成）
+.pytest_cache/
+
 # Playwright MCP 工具缓存
 .playwright-mcp/

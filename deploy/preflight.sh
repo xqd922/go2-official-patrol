@@ -107,6 +107,29 @@ else
   meh "站点没有 audio/ 目录，到点只会打印日志不发声"
 fi
 
+# 站点 site.env 里的网卡 / 狗地址优先于机器级配置——run_site.sh 就是这么做的。
+# 不在这里同步的话：site.yaml 的 iface 写错时，下面只检查机器级/自动探测出来的网卡
+# （存在，于是报 OK），而真正启动时 CYCLONEDDS_URI 会绑到那个不存在的网卡上，
+# 表现就是"自检全绿、服务起来了、但一条狗数据都收不到"。
+if [ -f "${SITE_DIR}/site.env" ]; then
+  site_net="$(
+    set +u; set -a
+    # shellcheck disable=SC1091
+    . "${SITE_DIR}/site.env" >/dev/null 2>&1 || true
+    printf '%s\n%s\n' "${GO2_IFACE:-}" "${GO2_DOG_IP:-}"
+  )"
+  site_iface="$(printf '%s\n' "$site_net" | sed -n 1p)"
+  site_dog_ip="$(printf '%s\n' "$site_net" | sed -n 2p)"
+  if [ -n "$site_iface" ] && [ "$site_iface" != "$GO2_IFACE" ]; then
+    echo "[preflight] 网卡按站点 site.env 覆盖: ${GO2_IFACE} → ${site_iface}"
+    GO2_IFACE="$site_iface"
+  fi
+  if [ -n "$site_dog_ip" ] && [ "$site_dog_ip" != "$GO2_DOG_IP" ]; then
+    echo "[preflight] 狗地址按站点 site.env 覆盖: ${GO2_DOG_IP} → ${site_dog_ip}"
+    GO2_DOG_IP="$site_dog_ip"
+  fi
+fi
+
 # --- 3. 网络 ---
 if command -v ip >/dev/null 2>&1; then
   if ip link show "$GO2_IFACE" >/dev/null 2>&1; then

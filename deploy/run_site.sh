@@ -2,7 +2,8 @@
 # 启动某个站点的巡检（systemd ExecStart；也可人工执行做现场联调）。
 #   deploy/run_site.sh <站点名>
 # 站点级差异全部来自 <站点目录>/site.yaml 生成的 site.env：
-#   GO2_IFACE / GO2_DOG_IP / GO2_PATROL_* / GO2_RVIZ
+#   GO2_IFACE / GO2_DOG_IP / GO2_PATROL_* / GO2_RVIZ /
+#   GO2_MAX_LINEAR 等安全阈值（safety: 段）/ env: 段自定义变量
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,19 +15,31 @@ if [ -z "$SITE" ]; then
   exit 2
 fi
 
-# 机器级配置（生产机由 install.sh 写入）→ 站点级配置 → 通用环境
-if [ -f /etc/go2/site.env ]; then
-  # shellcheck disable=SC1091
-  source /etc/go2/site.env
-fi
+# 站点级配置（set -a：site.env 里的赋值要能传进 ros2 launch 的子进程，否则像
+# GO2_BASE_FOOTPRINT_TF / GO2_REQUIRE_SCAN / GO2_MAX_LINEAR 这些由 driver.launch.py
+# 用 EnvironmentVariable 读的变量会被静默忽略）。
+#
+# 顺序很关键：**先** source 通用环境（它会读 /etc/go2/site.env 里的机器级 GO2_SITES），
+# **再** source 站点 site.env。反过来的话机器级文件会把站点级 GO2_IFACE 顶回
+# 机器默认网卡（CYCLONEDDS_URI 绑错网卡，DDS 根本收不到狗的数据）。
+# shellcheck source=go2_env.sh
+source "${SCRIPT_DIR}/go2_env.sh"
+
 SITES_DIR="${GO2_SITES:-${WS_ROOT}/sites}"
 SITE_DIR="${SITES_DIR}/${SITE}"
+set -a
 if [ -f "${SITE_DIR}/site.env" ]; then
   # shellcheck disable=SC1091
   source "${SITE_DIR}/site.env"
 fi
-# shellcheck source=go2_env.sh
-source "${SCRIPT_DIR}/go2_env.sh"
+set +a
+
+# 站点 site.env 里若有 GO2_IFACE / GO2_SITES，以站点为准重算（通用环境已读过一遍）
+SITES_DIR="${GO2_SITES:-${SITES_DIR}}"
+SITE_DIR="${SITES_DIR}/${SITE}"
+if [ "${GO2_IFACE:-}" != "" ]; then
+  export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"${GO2_IFACE}\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+fi
 
 if [ ! -d "$SITE_DIR" ]; then
   echo "[run_site] 站点目录不存在: ${SITE_DIR}" >&2
@@ -70,6 +83,15 @@ if [ -n "${GO2_PATROL_DWELL_OVERRIDE:-}" ]; then
 fi
 if [ -n "${GO2_PATROL_YAW_MODE:-}" ]; then
   LAUNCH_ARGS+=("yaw_mode:=${GO2_PATROL_YAW_MODE}")
+fi
+if [ -n "${GO2_PATROL_GOAL_RETRY_LIMIT:-}" ]; then
+  LAUNCH_ARGS+=("goal_retry_limit:=${GO2_PATROL_GOAL_RETRY_LIMIT}")
+fi
+if [ -n "${GO2_PATROL_GOAL_RETRY_DELAY:-}" ]; then
+  LAUNCH_ARGS+=("goal_retry_delay:=${GO2_PATROL_GOAL_RETRY_DELAY}")
+fi
+if [ -n "${GO2_PATROL_ON_GOAL_FAILURE:-}" ]; then
+  LAUNCH_ARGS+=("on_goal_failure:=${GO2_PATROL_ON_GOAL_FAILURE}")
 fi
 
 echo "[run_site] 站点=${SITE} 目录=${SITE_DIR}"

@@ -135,6 +135,9 @@ export GO2_SITES="$SITES_DIR"
 export GO2_ENV_QUIET=1
 # shellcheck source=../../deploy/go2_env.sh
 source "${WS_ROOT}/deploy/go2_env.sh"
+# go2_env.sh 会读机器级 /etc/go2/site.env；它里面若写了 GO2_SITES，演示必须仍然
+# 落在本次 RUN_DIR 下（否则 run_site.sh 会去 /opt/go2/sites 找站点，直接 exit 3）。
+export GO2_SITES="$SITES_DIR"
 
 # ---------------------------------------------------------------- 1. 造数据
 echo "[demo] 1/5 生成离线演示数据（地图 + 语音）"
@@ -168,6 +171,12 @@ if [ ! -f "${SITE_DIR}/nav2_params.yaml" ]; then
   echo "[demo] 站点未就绪：${SITE_DIR}/nav2_params.yaml 不存在" >&2
   exit 3
 fi
+if [ ! -f "${SITE_DIR}/site.env" ]; then
+  # run_site.sh 容忍 site.env 缺失，但验收器要靠它知道站点的到点朝向策略；
+  # 缺了就直接说清楚，别等到第 5 步才出一堆莫名的朝向失败。
+  echo "[demo] 站点未就绪：${SITE_DIR}/site.env 不存在（重新执行 apply_site.sh，或去掉 --no-apply）" >&2
+  exit 3
+fi
 
 # ---------------------------------------------------------------- 3. 起假狗
 echo "[demo] 3/5 启动闭环假机器狗（/lf/sportmodestate + /utlidar/cloud_deskewed）"
@@ -190,6 +199,17 @@ VERIFY_ARGS=(
   --timeout "$TIMEOUT"
   --report "${RUN_DIR}/report.json"
 )
+# 站点级到点朝向策略：验收器要知道 fixed 之外的点不判朝向（travel/next 的朝向取决于来路）。
+# 必须**真正 source 求值**，不能抠原文：site.env 里写的是 `GO2_PATROL_YAW_MODE=${GO2_PATROL_YAW_MODE:-travel}`
+# 这种模板形式（为了让命令行能覆盖），sed 拿到的是这串模板字面量而不是 travel，
+# 验收器会把它当成一个"非 fixed"的模式，站点级 fixed 的朝向检查就被静默跳过（假通过）。
+# 放进子 shell 求值，免得这里的 set -a 污染当前会话；站点侧文件读不到时按 fixed（保守）处理。
+SITE_YAW_MODE="$(
+  set -a; set +u
+  . "${SITE_DIR}/site.env" >/dev/null 2>&1 || true
+  printf '%s' "${GO2_PATROL_YAW_MODE:-}"
+)"
+VERIFY_ARGS+=(--yaw-mode "${SITE_YAW_MODE:-fixed}")
 if [ "$RETURN_HOME" = "false" ]; then
   VERIFY_ARGS+=(--no-return-home)
 fi
