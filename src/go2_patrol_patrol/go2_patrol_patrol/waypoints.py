@@ -6,6 +6,44 @@ from dataclasses import dataclass
 import yaml
 
 
+# 到达巡检点时的朝向策略（Waypoint.orientation_mode）：
+#   auto_next : 到达该点时自动朝向"下一个航点"（普通巡检点的默认行为）。
+#               yaw 字段被忽略/保留原值，仅作为记录；实际目标朝向由
+#               patrol_manager 依据下一点坐标算出。
+#   fixed     : 严格使用 yaw 字段（例如到设备后转向固定方向拍照/检测）。
+ORIENTATION_AUTO_NEXT = "auto_next"
+ORIENTATION_FIXED = "fixed"
+ORIENTATION_MODES = (ORIENTATION_AUTO_NEXT, ORIENTATION_FIXED)
+
+
+def normalize_orientation_mode(value, yaw=None):
+    """把 yaml / GUI 里的 orientation_mode 规整成标准值。
+
+    兼容旧配置：没有 orientation_mode 的一律视为 fixed（老 waypoints.yaml 的
+    yaw 一直精确生效，不能因为升级就悄悄改变已有巡检点的行为）。
+    yaw 写成字符串 "auto" 也视为 auto_next，方便手写 yaml。
+    """
+    if isinstance(yaw, str) and yaw.strip().lower() == "auto":
+        return ORIENTATION_AUTO_NEXT
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return ORIENTATION_FIXED
+    text = str(value).strip().lower()
+    # 容忍常见写法：auto / auto_next / next / fixed / manual
+    aliases = {
+        "auto": ORIENTATION_AUTO_NEXT,
+        "auto_next": ORIENTATION_AUTO_NEXT,
+        "next": ORIENTATION_AUTO_NEXT,
+        "automatic": ORIENTATION_AUTO_NEXT,
+        "fixed": ORIENTATION_FIXED,
+        "manual": ORIENTATION_FIXED,
+        "yaw": ORIENTATION_FIXED,
+    }
+    if text in aliases:
+        return aliases[text]
+    raise ValueError(
+        f"orientation_mode 只能是 {ORIENTATION_MODES}（或 yaw: auto），当前为 {value!r}")
+
+
 @dataclass(frozen=True)
 class Waypoint:
     name: str
@@ -15,16 +53,45 @@ class Waypoint:
     dwell: float = 4.0
     speech: str = ""
     home: bool = False
+    orientation_mode: str = ORIENTATION_FIXED
+
+    @property
+    def auto_orient(self) -> bool:
+        """到达该点时是否自动朝向下一个航点。"""
+        return normalize_orientation_mode(self.orientation_mode, self.yaw) \
+            == ORIENTATION_AUTO_NEXT
+
+
+def yaw_towards(from_waypoint, to_waypoint) -> float:
+    """从 from 指向 to 的朝向（弧度，map 系，逆时针为正）。"""
+    return math.atan2(float(to_waypoint.y) - float(from_waypoint.y),
+                      float(to_waypoint.x) - float(from_waypoint.x))
 
 
 def quaternion_yaw(q) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
+def _waypoint_from_item(item):
+    """单条 yaml -> Waypoint（兼容 yaw: auto 与 orientation_mode 两种写法）。"""
+    payload = dict(item)
+    raw_yaw = payload.get("yaw", 0.0)
+    mode = normalize_orientation_mode(payload.get("orientation_mode"), raw_yaw)
+    if isinstance(raw_yaw, str) and raw_yaw.strip().lower() == "auto":
+        # yaw: auto 不是数字，实测位姿里需要一个占位数值（实际不使用）。
+        raw_yaw = 0.0
+    payload["yaw"] = float(raw_yaw)
+    payload["orientation_mode"] = mode
+    # 兼容旧 yaml：speech / home 缺省
+    payload.setdefault("speech", payload.get("name", ""))
+    payload.setdefault("home", False)
+    return Waypoint(**payload)
+
+
 def load_waypoints(path):
     with open(path, "r", encoding="utf-8") as stream:
         data = yaml.safe_load(stream) or {}
-    return [Waypoint(**item) for item in data.get("waypoints", [])]
+    return [_waypoint_from_item(item) for item in data.get("waypoints", [])]
 
 
 def waypoint_to_dict(waypoint: Waypoint) -> dict:
@@ -33,6 +100,7 @@ def waypoint_to_dict(waypoint: Waypoint) -> dict:
     坐标保留 3 位小数（毫米级），与手工维护的 waypoints.yaml 风格一致；
     speech 为空时退回 name，保证巡检时一定有可播报的内容。
     """
+    mode = normalize_orientation_mode(waypoint.orientation_mode, waypoint.yaw)
     return {
         "name": waypoint.name,
         "x": round(float(waypoint.x), 3),
@@ -41,6 +109,8 @@ def waypoint_to_dict(waypoint: Waypoint) -> dict:
         "dwell": float(waypoint.dwell),
         "speech": waypoint.speech or waypoint.name,
         "home": bool(waypoint.home),
+        # 明确写出朝向策略，文件自解释；fixed 时 yaw 精确生效。
+        "orientation_mode": mode,
     }
 
 

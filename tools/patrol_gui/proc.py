@@ -91,27 +91,42 @@ def group_alive(pgid):
     return False
 
 
-def signal_group(pgid, sig):
+def signal_group(pgid, sig, log=None, reason=None):
+    """对整组发信号。
+
+    log/reason 只用于诊断：把"谁在什么时候对哪一组发了什么信号"写进日志。
+    真实机上出现过"离线 launch 整套消失、日志却没有任何 process has died"的情况，
+    那正是 killpg(SIGTERM) 的特征（父进程先死，来不及记录子进程死亡）。
+    因此这里显式记录调用来源与调用栈尾，便于定位是谁触发了清理。
+    """
     if pgid is None:
         return
+    if log is not None:
+        import inspect
+        stack = inspect.stack()
+        # 取调用 signal_group 的那一层（跳过本函数）
+        caller = stack[1] if len(stack) > 1 else None
+        where = f"{caller.function}@{caller.filename}:{caller.lineno}" if caller else "?"
+        log(f"[gui] 发送信号 {sig.name if hasattr(sig, 'name') else sig} "
+            f"到进程组 {pgid}（原因={reason or '未说明'}，调用点={where}）")
     try:
         os.killpg(pgid, sig)
     except (ProcessLookupError, PermissionError, OSError):
         pass
 
 
-def terminate_group(pgid, grace=15.0, kill_grace=5.0, log=print):
+def terminate_group(pgid, grace=15.0, kill_grace=5.0, log=print, reason=None):
     """SIGTERM 整组 -> 有限等待 -> 仍存活的 SIGKILL 整组。返回是否已清空。"""
     if pgid is None:
         return True
-    signal_group(pgid, signal.SIGTERM)
+    signal_group(pgid, signal.SIGTERM, log=log, reason=reason or "terminate_group")
     deadline = time.monotonic() + float(grace)
     while time.monotonic() < deadline:
         if not group_alive(pgid):
             return True
         time.sleep(0.2)
     log(f"[gui] 进程组 {pgid} 在 {grace:.0f}s 内未退出，升级为 SIGKILL")
-    signal_group(pgid, signal.SIGKILL)
+    signal_group(pgid, signal.SIGKILL, log=log, reason=(reason or "terminate_group") + "/SIGKILL")
     deadline = time.monotonic() + float(kill_grace)
     while time.monotonic() < deadline:
         if not group_alive(pgid):

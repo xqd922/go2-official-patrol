@@ -6,7 +6,7 @@ Panels:
       Expanded:
         - /PointCloud2_RAW1
       Splitter Ratio: 0.5
-    Tree Height: 476
+    Tree Height: 631
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -274,6 +274,32 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /particlecloud
       Value: false
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Go2 Robot Pose
+      Namespaces:
+        go2_pose: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /go2/pose_marker
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Patrol Waypoints
+      Namespaces:
+        patrol_waypoint_labels: true
+        patrol_waypoints: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /patrol/waypoint_markers
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Nav2 Status
@@ -302,7 +328,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 16.21999740600586
+      Distance: 21.29641342163086
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -317,10 +343,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.759797215461731
+      Pitch: 1.4447964429855347
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 3.166304349899292
+      Yaw: 3.131302833557129
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 15.787561416625977
@@ -345,12 +371,12 @@ Visualization Manager:
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1250
+  Height: 1529
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000002100000047afc0200000002fb000000100044006900730070006c006100790073010000004700000278000000f100fffffffb0000000a0056006900650077007301000002c6000001fb000000c200ffffff000003ca0000047a00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000021000000591fc0200000002fb000000100044006900730070006c006100790073010000004700000313000000f100fffffffb0000000a00560069006500770073010000036100000277000000c200ffffff000002c60000059100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
-  Width: 1505
-  X: 127
-  Y: 91
+  Width: 1245
+  X: 70
+  Y: 34

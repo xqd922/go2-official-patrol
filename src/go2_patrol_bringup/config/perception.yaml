@@ -12,3 +12,16 @@ pointcloud_to_laserscan:
     scan_time: 0.1
     use_inf: true
     inf_epsilon: 1.0
+    # /scan 是传感器数据流：按 ROS 约定应以 BEST_EFFORT(sensor_data) 发布。
+    # 不覆盖时 pointcloud_to_laserscan 用默认 RELIABLE 发布，而 Nav2 costmap
+    # 的 observation_source 与 RViz LaserScan 显示都按 BEST_EFFORT 订阅，
+    # RELIABLE 发布者 + BEST_EFFORT 订阅者 = QoS 不兼容，真实机日志里会出现：
+    #   pointcloud_to_laserscan: New subscription discovered on topic '/scan',
+    #   requesting incompatible QoS. Last incompatible policy: RELIABILITY_QOS_POLICY
+    # 这会让 costmap 收不到 /scan（障碍层空转）。这里只改**发布端 QoS**，
+    # 不触碰 Nav2 参数，也保持占位/量程/角度等感知参数不变。
+    qos_overrides:
+      /scan:
+        publisher:
+          reliability: best_effort
+          durability: volatile

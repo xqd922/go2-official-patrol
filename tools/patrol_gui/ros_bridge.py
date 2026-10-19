@@ -10,11 +10,27 @@ import time
 from . import map_pose, proc  # noqa: F401  (re-export 便于调用方统一 import)
 
 
+def latched_qos():
+    """与 map_server 的 /map 匹配的 latched(TRANSIENT_LOCAL) QoS。
+
+    单独抽成函数便于单测：map_server 只在地图加载时发一次 /map，订阅端必须
+    用 TRANSIENT_LOCAL 才能拿到"订阅之前"已发布的那条；用默认 volatile 会
+    永远收不到，导致 GUI 误报"地图未加载"。
+    """
+    from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
+                           ReliabilityPolicy)
+    return QoSProfile(
+        depth=1, history=HistoryPolicy.KEEP_LAST,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+
 class RosBridge:
     """后台 spin 的 ROS 节点：缓存最新 map 位姿、巡检状态、当前目标。"""
 
     def __init__(self, node_name="patrol_gui", map_frame="map",
-                 base_frame="base_footprint", logger=print):
+                 base_frame="base_footprint", logger=print,
+                 waypoints_path=None, publish_markers=True):
         import rclpy
         from rclpy.node import Node
         from std_msgs.msg import String
@@ -40,9 +56,40 @@ class RosBridge:
         self._buffer = Buffer()
         self._listener = TransformListener(self._buffer, self.node)
 
+        # 把 map->base_footprint 的位姿同时发布成 RViz Marker，
+        # 让 RViz 里也能"一眼看到机器人在哪、朝哪"。位置来源与 GUI 完全一致。
+        self.markers = None
+        if publish_markers:
+            try:
+                from .tf_markers import MarkerPublisher
+                self.markers = MarkerPublisher(
+                    self.node, map_frame=map_frame, base_frame=base_frame,
+                    tf_buffer=self._buffer, waypoints_path=waypoints_path,
+                    logger=logger)
+                self.log(f"[gui] 已启用 RViz 标记发布：/go2/pose_marker、"
+                         f"/patrol/waypoint_markers")
+            except Exception as exc:
+                self.log(f"[gui] RViz 标记发布不可用（不影响其它功能）：{exc}")
+                self.markers = None
+
         # patrol_manager 在每次到达航点时通过 /robot/say 播报航点名；
         # GUI 用它显示"当前目标点"（不新增话题，完全复用现有链路）。
         self.node.create_subscription(String, "/robot/say", self._on_say, 10)
+
+        # /map 元数据缓存：GUI 用它确认 map_server 真的加载了地图，
+        # 而不是"launch 进程还活着"就报"导航已启动"。
+        self._map_info = None       # (width, height, resolution, frame_id, stamp)
+        try:
+            from nav_msgs.msg import OccupancyGrid
+            # map_server 的 /map 是 **latched（transient_local）**：它只在地图
+            # 加载时发一次。若用默认（volatile）QoS 订阅，GUI 在导航起来之后才
+            # 建订阅，就永远收不到那一条已发的消息，于是界面会一直误报
+            # “地图未加载”。这里必须用匹配的 TRANSIENT_LOCAL QoS 才能拿到。
+            map_qos = latched_qos()
+            self.node.create_subscription(OccupancyGrid, "/map", self._on_map,
+                                          map_qos)
+        except Exception as exc:
+            self.log(f"[gui] 无法订阅 /map（地图校验将不可用）：{exc}")
         # 部分部署会把巡检状态发到 /robot/status；有就显示，没有也不影响。
         self.node.create_subscription(String, "/robot/status", self._on_status, 10)
 
@@ -69,8 +116,13 @@ class RosBridge:
             transform = self._buffer.lookup_transform(
                 self.map_frame, self.base_frame, self._rclpy.time.Time())
         except Exception as exc:
+            # 明确区分"整条链都缺"和"只缺某一段"，界面直接告诉用户缺哪段。
+            detail = str(exc)
+            if "map" in detail and "odom" in detail:
+                detail = (f"缺少 {self.map_frame}->{self.base_frame} TF"
+                          f"（map->odom 或 odom->base_footprint 未发布）：{detail}")
             with self._lock:
-                self._tf_error = str(exc)
+                self._tf_error = detail
             return
         # 用共享实现换算 (x, y, yaw)，与 CLI record_waypoint 完全一致，
         # 避免 GUI 与其它入口对同一 TF 得出不同 yaw。
@@ -83,6 +135,24 @@ class RosBridge:
     def _on_say(self, message):
         with self._lock:
             self._goal = message.data
+
+    def _on_map(self, message):
+        info = message.info
+        with self._lock:
+            self._map_info = (int(info.width), int(info.height),
+                              float(info.resolution), str(info.origin.position.x),
+                              str(info.origin.position.y),
+                              str(message.header.frame_id), time.monotonic())
+
+    def map_info(self):
+        """返回 /map 元数据 dict，或 None（还没收到）。"""
+        with self._lock:
+            info = self._map_info
+        if info is None:
+            return None
+        return {"width": info[0], "height": info[1], "resolution": info[2],
+                "origin_x": info[3], "origin_y": info[4], "frame_id": info[5],
+                "age": time.monotonic() - info[6]}
 
     def _on_status(self, message):
         text = (message.data or "").strip().upper()

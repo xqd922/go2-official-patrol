@@ -58,19 +58,38 @@ class WaypointStore:
     def names(self):
         return [w.name for w in self.list()]
 
-    def upsert(self, name, x, y, yaw, dwell=4.0, speech=None, home=False):
+    def upsert(self, name, x, y, yaw, dwell=4.0, speech=None, home=False,
+               orientation_mode=None):
+        """新增/覆盖航点。
+
+        orientation_mode:
+          * None：沿用默认（auto_next）——GUI 普通点默认"自动朝向下一点"；
+          * "auto_next"：到达后自动朝向下一个航点（yaw 只作记录）；
+          * "fixed"：严格使用 yaw（到设备后转向固定方向拍照/检测）。
+        """
         ok, error = validate_name(name)
         if not ok:
             raise ValueError(error)
         normalized = normalize_name(name)
-        waypoint = self._module.Waypoint(
+        module = self._module
+        raw_yaw = yaw
+        # 兼容 GUI 里直接填 yaw=auto：表示"自动朝向下一点"，数值给 0 占位。
+        if isinstance(raw_yaw, str) and raw_yaw.strip().lower() == "auto":
+            raw_yaw = 0.0
+            if orientation_mode is None:
+                orientation_mode = "auto_next"
+        if orientation_mode is None:
+            orientation_mode = "auto_next"
+        mode = module.normalize_orientation_mode(orientation_mode, raw_yaw)
+        waypoint = module.Waypoint(
             name=normalized,
             x=float(x),
             y=float(y),
-            yaw=float(yaw),
+            yaw=float(raw_yaw),
             dwell=float(dwell),
             speech=speech or normalized,
             home=bool(home),
+            orientation_mode=mode,
         )
         return self._module.upsert_waypoint(self.path, waypoint)
 

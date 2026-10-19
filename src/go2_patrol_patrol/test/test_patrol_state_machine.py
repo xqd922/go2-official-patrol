@@ -41,12 +41,16 @@ def _build_stub_modules():
 
 # Provide rclpy + rclpy.action stubs so `from nav2_simple_commander...` won't
 # try to import a real rclpy.
+#
+# 重要：这些桩只在**本文件的收集/执行期间**临时挂上，跑完立刻还原。
+# 之前用 sys.modules.setdefault 永久塞进桩，会让同一 pytest 进程里后续的
+# 用例（例如 patrol_gui 的 tf_check）拿到假 rclpy，进而在真实 rclpy 与
+# 桩的行为差异上失败。这里用保存/还原保证互不污染。
 _stub_rclpy = _build_stub_modules()
-sys.modules.setdefault("rclpy", _stub_rclpy[0])
-sys.modules.setdefault("rclpy.action", _stub_rclpy[1])
-sys.modules.setdefault("rclpy.node", _stub_rclpy[2])
-sys.modules.setdefault("rclpy.duration", _stub_rclpy[3])
-sys.modules.setdefault("rclpy.qos", _stub_rclpy[4])
+_RCLPY_KEYS = ("rclpy", "rclpy.action", "rclpy.node", "rclpy.duration", "rclpy.qos")
+_SAVED_MODULES = {name: sys.modules.get(name) for name in _RCLPY_KEYS}
+for _name, _mod in zip(_RCLPY_KEYS, _stub_rclpy):
+    sys.modules[_name] = _mod
 
 # Replace `from rclpy import ...` lines with nothing so the import doesn't
 # replace our stub module.
@@ -77,6 +81,13 @@ sys.modules.setdefault("std_srvs.srv", ssrv)
 module = types.ModuleType("patrol_manager_under_test")
 module.__file__ = SRC
 exec(compile(src, SRC, "exec"), module.__dict__)
+
+# 模块已 exec 完，还原真实（或缺失的）rclpy 模块，避免污染后续用例。
+for _name, _saved in _SAVED_MODULES.items():
+    if _saved is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _saved
 
 IDLE = module.IDLE
 RUNNING = module.RUNNING

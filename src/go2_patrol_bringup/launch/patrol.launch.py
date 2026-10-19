@@ -27,7 +27,11 @@ def generate_launch_description():
     timer = Node(
         package="go2_patrol_patrol",
         executable="patrol_manager",
-        parameters=[{"waypoints_file": LaunchConfiguration("waypoints_file")}],
+        parameters=[{
+            "waypoints_file": LaunchConfiguration("waypoints_file"),
+            "loops": LaunchConfiguration("patrol_loops"),
+            "return_home": LaunchConfiguration("return_home"),
+        }],
         output="screen",
     )
     return LaunchDescription(
@@ -37,6 +41,8 @@ def generate_launch_description():
                 "waypoints_file",
                 default_value=os.path.join(bringup, "config", "waypoints.yaml"),
             ),
+            DeclareLaunchArgument("patrol_loops", default_value="1"),
+            DeclareLaunchArgument("return_home", default_value="false"),
             driver,
             navigation,
             voice,

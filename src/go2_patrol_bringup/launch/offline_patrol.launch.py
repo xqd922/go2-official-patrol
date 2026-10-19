@@ -196,6 +196,9 @@ def generate_launch_description():
                 "waypoints_file": LaunchConfiguration("waypoints_file"),
                 # 离线没有 AMCL：跳过对 amcl/get_state 的等待，只等导航栈就绪。
                 "localizer": "",
+                # 巡检圈数 / 结束是否回 home（默认保持"跑完 loops 次即停"）。
+                "loops": LaunchConfiguration("patrol_loops"),
+                "return_home": LaunchConfiguration("return_home"),
             }
         ],
         output="screen",
@@ -208,6 +211,10 @@ def generate_launch_description():
                 "waypoints_file",
                 default_value=os.path.join(bringup, "config", "waypoints.yaml"),
             ),
+            # 巡检圈数（0 = 无限循环）。默认 1 圈后结束。
+            DeclareLaunchArgument("patrol_loops", default_value="1"),
+            # 最后一圈结束后是否导航回 home 点。默认 False（与既有文档一致）。
+            DeclareLaunchArgument("return_home", default_value="false"),
             # rviz:=false 用于无显示器的 CI / 沙箱：离线巡检链路本身不需要可视化。
             DeclareLaunchArgument("rviz", default_value="true",
                                   description="是否启动演示用 RViz（无显示器环境传 false）。"),

@@ -10,7 +10,8 @@ from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReli
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
-from go2_patrol_patrol.waypoints import Waypoint, load_waypoints
+from go2_patrol_patrol.waypoints import (Waypoint, load_waypoints, normalize_orientation_mode,
+                                         yaw_towards)
 
 
 IDLE = "IDLE"
@@ -18,16 +19,59 @@ RUNNING = "RUNNING"
 PAUSED = "PAUSED"
 
 
-def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
+def pose_message(navigator: BasicNavigator, waypoint: Waypoint, yaw=None) -> PoseStamped:
+    """把航点转成 Nav2 的 PoseStamped。
+
+    yaw 为 None 时严格使用 waypoint.yaw（手动朝向）；patrol_manager 计算好
+    "朝向下一航点"的实际 yaw 后会显式传入，保证每条 goal 的最终姿态明确。
+    """
+    goal_yaw = waypoint.yaw if yaw is None else float(yaw)
     pose = PoseStamped()
     pose.header.frame_id = navigator.get_parameter("map_frame").value if navigator.has_parameter("map_frame") else "map"
     pose.header.stamp = navigator.get_clock().now().to_msg()
     pose.pose.position.x = waypoint.x
     pose.pose.position.y = waypoint.y
     pose.pose.position.z = 0.0
-    pose.pose.orientation.z = math.sin(waypoint.yaw * 0.5)
-    pose.pose.orientation.w = math.cos(waypoint.yaw * 0.5)
+    pose.pose.orientation.z = math.sin(goal_yaw * 0.5)
+    pose.pose.orientation.w = math.cos(goal_yaw * 0.5)
     return pose
+
+
+def resolve_goal_yaw(waypoints, index, loop_index, loop_count, return_home):
+    """计算第 index 个航点到达时的最终朝向（弧度）。
+
+    规则（普通巡检点 default auto_next）：
+      * 手动朝向（orientation_mode: fixed）：严格用 waypoint.yaw。
+      * 自动朝向（auto_next）：朝向"本趟下一个要去的点"，即 waypoints[index+1]；
+      * 最后一个点：若之后还会返回 home（return_home 或还有下一轮循环），
+        朝向 home（home 点优先，否则序列第一个点）；否则保持自身 yaw，
+        **不为了不存在的下一点额外旋转**。
+    """
+    waypoint = waypoints[index]
+    if normalize_orientation_mode(waypoint.orientation_mode, waypoint.yaw) != "auto_next":
+        return float(waypoint.yaw)
+    if index + 1 < len(waypoints):
+        return yaw_towards(waypoint, waypoints[index + 1])
+    # 最后一个点：看之后是否真的还有"下一个目标"。
+    # 两种情况都意味着"确实还要去下一个地方"：
+    #   1) return_home=True：本趟结束后会导航回 home（tick() 里真正执行）；
+    #   2) 还有下一轮循环（loop_count<=0 为无限循环）。
+    has_next_loop = loop_count <= 0 or (loop_index + 1) < loop_count
+    if return_home or has_next_loop:
+        home = find_home(waypoints)
+        if home is not None:
+            return yaw_towards(waypoint, home)
+        return yaw_towards(waypoint, waypoints[0])
+    # 巡检到此真正结束：不做无意义的额外转向
+    return float(waypoint.yaw)
+
+
+def find_home(waypoints):
+    """返回标记 home 的航点（没有则 None）。"""
+    for waypoint in waypoints:
+        if waypoint.home:
+            return waypoint
+    return None
 
 
 class PatrolManager(Node):
@@ -35,7 +79,10 @@ class PatrolManager(Node):
         super().__init__("patrol_manager")
         self.declare_parameter("waypoints_file", "waypoints.yaml")
         self.declare_parameter("loops", 1)
-        self.declare_parameter("return_home", True)
+        # return_home 现在真正生效（最后一趟结束后导航回 home 点）。
+        # 默认 False 保持"跑完 loops 次即停止"的既有/文档化行为，需要回充/回起点时
+        # 再显式开：ROS 参数 return_home:=true（或 launch 参数）。
+        self.declare_parameter("return_home", False)
         self.declare_parameter("battery_low", 20.0)
         self.declare_parameter("arrival_tolerance", 0.30)
         # 离线链路没有 AMCL（定位由静态 map->odom + 真值里程计提供），
@@ -64,6 +111,8 @@ class PatrolManager(Node):
         self.state = IDLE
         self.low_battery = False
         self.current_goal = None
+        # return_home 生效时：最后一趟结束后"回家"这一段正在走。
+        self.returning_home = False
         self.dwell_until = self.get_clock().now()
 
         speech_qos = QoSProfile(
@@ -161,12 +210,23 @@ class PatrolManager(Node):
         self.spoken = set()
         self.low_battery = False
         self.current_goal = None
+        self.returning_home = False
         self.dwell_until = self.get_clock().now()
 
-    def send_goal(self, waypoint: Waypoint):
-        goal = pose_message(self.navigator, waypoint)
+    def send_goal(self, waypoint: Waypoint, yaw=None):
+        goal = pose_message(self.navigator, waypoint, yaw=yaw)
         self.navigator.goToPose(goal)
         self.current_goal = True
+
+    def home_goal(self):
+        """返回 home 航点；没有标记 home 的则退回序列第一个点。"""
+        home = find_home(self.waypoints)
+        return home if home is not None else (self.waypoints[0] if self.waypoints else None)
+
+    def goal_yaw_for(self, index: int) -> float:
+        """第 index 个航点到达时的最终朝向。"""
+        return resolve_goal_yaw(self.waypoints, index, self.loop_index,
+                                self.loop_count, self.return_home)
 
     def tick(self):
         if self.state != RUNNING:
@@ -175,18 +235,32 @@ class PatrolManager(Node):
         if self.get_clock().now() < self.dwell_until:
             return
 
+        # ---- 当前没有在跑的 goal：决定下一个目标 ----
         if not self.current_goal:
             if self.low_battery:
-                self.send_goal(self.waypoints[0])
+                # 低电量：回 home（而不是盲目回序列第 0 个点），朝向用 home 自身 yaw。
+                home = self.home_goal()
+                if home is not None:
+                    self.send_goal(home, yaw=home.yaw)
+                    self.returning_home = True
                 return
-            self.send_goal(self.waypoints[self.waypoint_index])
+            index = self.waypoint_index
+            self.send_goal(self.waypoints[index], yaw=self.goal_yaw_for(index))
+            self.returning_home = False
             return
 
+        # ---- 有 goal 在跑：等它结束 ----
         if not self.navigator.isTaskComplete():
             return
 
         result = self.navigator.getResult()
         if result == TaskResult.SUCCEEDED:
+            if self.returning_home:
+                # 已回到 home：本趟彻底结束，不 dwell、不再发目标。
+                self.returning_home = False
+                self.current_goal = None
+                self.state = IDLE
+                return
             waypoint = self.waypoints[self.waypoint_index]
             self.say(waypoint)
             self.dwell_until = self.get_clock().now() + Duration(seconds=waypoint.dwell)
@@ -194,7 +268,16 @@ class PatrolManager(Node):
             if self.waypoint_index >= len(self.waypoints):
                 self.loop_index += 1
                 self.waypoint_index = 0
-            if self.loop_count > 0 and self.loop_index >= self.loop_count:
+            finished = self.loop_count > 0 and self.loop_index >= self.loop_count
+            if finished:
+                home = self.home_goal() if self.return_home else None
+                if home is not None:
+                    # return_home 真正生效：最后一趟结束后再导航回 home，
+                    # 到点（下一个 tick 的 returning_home 分支）才转 IDLE。
+                    self.current_goal = None
+                    self.returning_home = True
+                    self.send_goal(home, yaw=home.yaw)
+                    return
                 self.state = IDLE
         elif result == TaskResult.FAILED:
             self.get_logger().warn("navigation goal failed; retrying")

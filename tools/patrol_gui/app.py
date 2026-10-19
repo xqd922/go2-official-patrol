@@ -32,7 +32,13 @@ def main(argv=None):
             from .ros_bridge import RosBridge
             import rclpy
             rclpy.init()
-            bridge = RosBridge()
+            # 把 GUI 正在编辑的 waypoints.yaml 交给桥：RViz 里的
+            # /patrol/waypoint_markers 直接反映这份文件（A/B/C/D + 名称）。
+            # 位置与文件都取自同一处，避免"界面显示一套、RViz 显示另一套"。
+            waypoints_path = os.path.join(
+                repo_root(), "src", "go2_patrol_bringup", "config",
+                "waypoints.yaml")
+            bridge = RosBridge(waypoints_path=waypoints_path)
         except Exception as exc:
             # ROS 起不来不应让界面打不开：用户仍能查看/编辑航点，
             # 只是位姿与巡检按钮不可用，界面会明确提示。

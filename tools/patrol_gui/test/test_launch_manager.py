@@ -38,7 +38,7 @@ def manager(tmp_path, monkeypatch):
     # wait_pgid_ready 会去查真实 /proc；测试里直接让它返回 pid。
     monkeypatch.setattr(lm.proc, "wait_pgid_ready", lambda pid, timeout=5.0: pid)
     monkeypatch.setattr(lm.proc, "terminate_group",
-                        lambda pgid, grace=15.0, log=print: True)
+                        lambda pgid, grace=15.0, log=print, reason=None: True)
     return lm.LaunchManager(str(tmp_path), popen_factory=_FakePopen,
                             logger=lambda *_: None)
 
@@ -52,14 +52,89 @@ def test_start_mapping_uses_existing_launch(manager):
     assert manager.is_running(lm.MAPPING)
 
 
-def test_start_navigation_passes_map_argument(manager, tmp_path):
+def test_current_mode_defaults_to_real(monkeypatch):
+    """没有任何离线标志时必须是 REAL，避免离线逻辑渗进真机。"""
+    monkeypatch.delenv("GO2_OFFLINE_MODE", raising=False)
+    monkeypatch.delenv("GO2_OFFLINE_LOCALHOST_ONLY", raising=False)
+    assert lm.current_mode() == lm.REAL
+    assert lm.navigation_launch_for(lm.REAL) == "patrol.launch.py"
+
+
+def test_current_mode_detects_offline(monkeypatch):
+    """setup_offline.sh 的两个标志任一存在都判为 OFFLINE。"""
+    monkeypatch.delenv("GO2_OFFLINE_LOCALHOST_ONLY", raising=False)
+    monkeypatch.setenv("GO2_OFFLINE_MODE", "1")
+    assert lm.current_mode() == lm.OFFLINE
+    assert lm.navigation_launch_for(lm.OFFLINE) == "offline_patrol.launch.py"
+
+    monkeypatch.delenv("GO2_OFFLINE_MODE", raising=False)
+    monkeypatch.setenv("GO2_OFFLINE_LOCALHOST_ONLY", "1")
+    assert lm.current_mode() == lm.OFFLINE
+
+    assert lm.navigation_launch_for(lm.OFFLINE) == "offline_patrol.launch.py"
+
+
+def test_start_navigation_real_uses_patrol_launch(manager, tmp_path):
+    """REAL 模式必须仍是 patrol.launch.py（AMCL 真机链路），不能被离线改坏。"""
     map_path = tmp_path / "maps" / "office.yaml"
     map_path.parent.mkdir(parents=True)
     map_path.write_text("image: office.pgm\n")
-    manager.start_navigation(str(map_path))
+    manager.start_navigation(str(map_path), mode=lm.REAL)
     args = _FakePopen.instances[-1].args
     assert args[3] == "patrol.launch.py"
     assert args[4] == f"map:={map_path}"
+    # REAL 不传 rviz 开关（由 patrol.launch.py 自己决定）
+    assert not any(a.startswith("rviz:=") for a in args)
+
+
+def test_start_navigation_offline_uses_offline_patrol_launch(manager, tmp_path):
+    """OFFLINE 必须走 offline_patrol.launch.py：fake_go2 + 静态 map->odom，
+    绝不去起 REAL 的 AMCL 链路。"""
+    map_path = tmp_path / "src" / "go2_patrol_bringup" / "maps" / "offline_room.yaml"
+    map_path.parent.mkdir(parents=True)
+    map_path.write_text("image: offline_room.pgm\n")
+    manager.start_navigation(str(map_path), mode=lm.OFFLINE)
+    args = _FakePopen.instances[-1].args
+    assert args[3] == "offline_patrol.launch.py"
+    # 完整绝对路径必须传给 launch，不能退回默认地图
+    assert f"map:={map_path}" == args[4]
+    assert any(a.startswith("rviz:=") for a in args)
+
+
+def test_start_navigation_map_argument_is_absolute(manager, tmp_path, monkeypatch):
+    """GUI 选中的地图必须原样（绝对路径）传给 launch，不许写死 offline_room。"""
+    map_path = tmp_path / "maps" / "lab.yaml"
+    map_path.parent.mkdir(parents=True)
+    map_path.write_text("image: lab.pgm\n")
+    monkeypatch.chdir(tmp_path)
+    manager.start_navigation("maps/lab.yaml", mode=lm.OFFLINE)
+    args = _FakePopen.instances[-1].args
+    assert args[4] == f"map:={map_path}"
+    assert "lab.yaml" in args[4]
+    assert "offline_room" not in args[4]
+
+
+def test_start_navigation_logs_selected_and_nav_map(manager, tmp_path):
+    """启动日志必须能一眼对照 GUI 选的地图和真正传给 Nav2 的地图。"""
+    logged = []
+    map_path = tmp_path / "maps" / "corridor.yaml"
+    map_path.parent.mkdir(parents=True)
+    map_path.write_text("image: corridor.pgm\n")
+    manager.log = logged.append
+    manager.start_navigation(str(map_path), mode=lm.OFFLINE)
+    joined = "\n".join(str(x) for x in logged)
+    assert f"GUI_SELECTED_MAP={map_path}" in joined
+    assert f"NAV_MAP={map_path}" in joined
+
+
+def test_start_navigation_follows_rviz_flag(manager, tmp_path):
+    """GUI 关掉 RViz 开关时，离线 launch 也必须收到 rviz:=false。"""
+    map_path = tmp_path / "maps" / "x.yaml"
+    map_path.parent.mkdir(parents=True)
+    map_path.write_text("image: x.pgm\n")
+    manager.start_navigation(str(map_path), mode=lm.OFFLINE, rviz=False)
+    args = _FakePopen.instances[-1].args
+    assert "rviz:=false" in args
 
 
 def test_start_navigation_requires_existing_map(manager, tmp_path):

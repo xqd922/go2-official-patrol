@@ -57,13 +57,17 @@ def _restore_stubs():
 _install_stubs()
 
 
-def pytest_collection_modifyitems(config, items):
-    """确保还原发生在“本目录测试收集完成之后、其它目录收集之前”。
+def pytest_collection_finish(session):
+    """**全部**收集完成后立刻还原 sys.modules。
 
-    pytest 的收集顺序是逐目录进行的，因此这里按目录分组处理：
-    只保留与本目录相关的测试，并在结束后立刻还原。
+    历史坑：之前在 pytest_collection_modifyitems 里按目录判断还原，只有在
+    “本目录没有用例”时才还原，于是同一进程里同时收集 tools/offline_demo/test
+    与 tools/patrol_gui/test 时，geometry_msgs 的桩会一直留在 sys.modules，
+    让后面依赖真实 ROS 消息类型（visualization_msgs -> geometry_msgs.Pose）
+    的用例全部 ImportError。
+
+    收集阶段需要桩（让 fake_go2 能 import），而**运行阶段**不再需要：运行
+    阶段用的桩模块本身已经绑定到已 import 的对象上。所以这里在收集一结束
+    就把真实的 ROS 模块还原回去，保证运行期各测试目录互不污染。
     """
-    here = os.path.dirname(os.path.abspath(__file__))
-    ours = [i for i in items if os.path.abspath(str(i.fspath)).startswith(here)]
-    if not ours:
-        _restore_stubs()
+    _restore_stubs()
