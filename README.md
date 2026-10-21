@@ -14,18 +14,16 @@
 > 宇树官方 `slam_operate` 导航服务**不使用机载 L2**，只支持
 > **EDU + 拓展坞 + 官方外置 MID-360/XT16**。两种路线的差异、限制和
 > "反光条能否当墙"的结论见
-> [`docs/EDU与L2-官方SLAM导航服务对比.md`](docs/EDU与L2-官方SLAM导航服务对比.md)。
+> [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) 第 12 节。
 
 ## 从哪开始
 
 | 我现在要干什么 | 看这里 |
 |---|---|
-| 手上没有机器狗，先看效果、跑自动验收 | 本文「离线闭环演示」一节 |
-| 接真机：连线自检 → 建图 → 导航 → 巡检 | [`docs/使用指南.md`](docs/使用指南.md) 路线 B |
-| 完全没接触过 ROS、第一次上真机 | [`docs/小白上机实操手册.md`](docs/小白上机实操手册.md)（从"交付到底交什么"开始手把手） |
-| 交付到另一台生产机器狗 | [`deploy/README.md`](deploy/README.md) + [`docs/生产交付手册.md`](docs/生产交付手册.md) |
-| 从零装环境（含踩坑记录） | [`docs/开发环境搭建与安装记录.md`](docs/开发环境搭建与安装记录.md) |
-| 完整背景、接口细节、排错大全 | [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md) |
+| 手上没有机器狗，先看效果、跑自动验收 | [`docs/仿真与离线验收手册.md`](docs/仿真与离线验收手册.md) |
+| 接真机：连线自检 → 建图 → 导航 → 巡检 | [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) |
+| 交付到生产机器狗、开机自启、升级回滚 | [`deploy/README.md`](deploy/README.md) + [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) |
+| 编译工作空间、配置 WSL 和接狗网络 | [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) 第 3、4 节 |
 
 ## 组件
 
@@ -159,7 +157,7 @@ ros2 service call /patrol/stop   std_srvs/srv/Trigger   # 终止本次巡检（�
 `slow_distance`、`cmd_vel_timeout`、`require_scan`、`scan_timeout`、`base_footprint_tf`。
 
 > 走到角落"原地转半天"多半不是定位问题，而是点位 `yaw` 与行进方向无关，
-> 详见 [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md) §9.1.1。
+> 详见 [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) 第 7.2 节。
 
 ### 5. 采集航点
 
@@ -189,7 +187,8 @@ sudo systemctl enable --now go2-patrol@office
 
 站点差异（固定起点初始位姿、巡检任务参数、网卡）全部集中在站点 `site.yaml`；
 升级与回滚只切 `/opt/go2/current` 软链（`sudo deploy/install.sh --rollback <旧版本>`），
-站点资产不受影响。现场标定与验收清单见 [`docs/生产交付手册.md`](docs/生产交付手册.md)。
+站点资产不受影响。现场标定与验收清单见
+[`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) 第 8、10 节。
 
 ## 常用命令速查
 
@@ -240,7 +239,7 @@ CI：push 到 `main` 或开 PR 时会跑 GitHub Actions（Humble 上 `colcon bui
   （急停 < 停车 < 减速；只写其中一两个时，缺的按驱动默认值参与比较），写反、写负、
   非数字或与 `env:` 段重复定义都会被 `apply_site.sh` 的自检直接拒绝落地。
 - **装机后别跳过这步**：现场按实际地面与负载复核急停阈值与限速，
-  见 [`docs/生产交付手册.md`](docs/生产交付手册.md) 第 11 节。
+  见 [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) 第 9 节。
 
 ## 可选扩展：反光条虚拟墙（测试项）
 
@@ -266,11 +265,7 @@ ros2 topic echo /reflective_wall_status   # 也支持 /reflective_wall_active
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/使用指南.md`](docs/使用指南.md) | 按"我现在要干什么"分三条路线，含真机确认清单与排错速查 |
-| [`docs/小白上机实操手册.md`](docs/小白上机实操手册.md) | 零基础第一篇：交付概念、名词表、第一次上机逐步操作与排错 |
-| [`docs/完整部署与使用手册.md`](docs/完整部署与使用手册.md) | 完整背景、设计取舍、接口细节、排错大全 |
-| [`docs/生产交付手册.md`](docs/生产交付手册.md) | 交付流程、现场标定与验收清单 |
-| [`docs/交付清单.md`](docs/交付清单.md) | 交付物料、自带工具、现场验收与签字栏（可打印） |
-| [`docs/开发环境搭建与安装记录.md`](docs/开发环境搭建与安装记录.md) | 从零装环境与踩坑记录 |
-| [`docs/EDU与L2-官方SLAM导航服务对比.md`](docs/EDU与L2-官方SLAM导航服务对比.md) | 官方 SLAM 服务 vs 本方案（机载 L2 路线） |
+| [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) | 真机安装、联网、建图、导航、巡检、安全验收、生产部署 |
+| [`docs/WSL2连接Go2完整排错与联调实录.md`](docs/WSL2连接Go2完整排错与联调实录.md) | Windows + WSL2 直连 Go2 的完整排错过程、原理与实测数据 |
+| [`docs/仿真与离线验收手册.md`](docs/仿真与离线验收手册.md) | 假狗离线闭环、自动验收、测试和仿真边界 |
 | [`deploy/README.md`](deploy/README.md) | 生产交付工具包说明 |

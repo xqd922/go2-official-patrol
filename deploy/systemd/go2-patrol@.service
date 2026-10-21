@@ -3,7 +3,7 @@
 # 占位符 @GO2_ROOT@ / @GO2_USER@ 在安装时替换。
 [Unit]
 Description=Go2 巡检任务（站点 %i）
-Documentation=file:@GO2_ROOT@/current/docs/生产交付手册.md
+Documentation=file:@GO2_ROOT@/current/docs/真机部署与使用手册.md
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300

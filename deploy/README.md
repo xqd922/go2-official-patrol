@@ -145,4 +145,5 @@ sudo /opt/go2/current/deploy/preflight.sh office   # 手动自检
 ros2 service call /patrol/start std_srvs/srv/Trigger   # 取消暂停（启动时是自动开跑的；巡检结束后调它无效）
 ```
 
-详细交付流程、现场标定与验收清单见 [`docs/生产交付手册.md`](../docs/生产交付手册.md)。
+详细交付流程、现场标定与验收清单见
+[`docs/真机部署与使用手册.md`](../docs/真机部署与使用手册.md)。
