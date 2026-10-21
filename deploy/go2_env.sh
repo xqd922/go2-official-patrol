@@ -42,7 +42,17 @@ export GO2_WS="${GO2_WS:-$(cd "${_go2_env_dir}/.." && pwd)}"
 export GO2_SITES="${GO2_SITES:-${GO2_WS}/sites}"
 unset _go2_env_dir
 
-# 网卡选择优先级：GO2_IFACE > 默认路由网卡 > enp3s0 兜底
+# 网卡选择优先级：GO2_IFACE > 能直达 GO2_DOG_IP 的网卡 > 默认路由网卡 > enp3s0 兜底
+#
+# 这里不能直接用默认路由网卡：WSL2 镜像模式下 Wi-Fi 是默认路由，接狗的 USB 网卡
+# 只是同网段直连，选错的表现不是报错，而是"ping 通、话题全空"。
+# 用 `ip route get <狗地址>` 拿到的才是内核实际出包的那张网卡。
+GO2_DOG_IP="${GO2_DOG_IP:-192.168.123.161}"
+if [ -z "${GO2_IFACE:-}" ] && command -v ip >/dev/null 2>&1; then
+  GO2_IFACE="$(ip route get "$GO2_DOG_IP" 2>/dev/null |
+    awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')" ||
+    GO2_IFACE=""
+fi
 if [ -z "${GO2_IFACE:-}" ] && command -v ip >/dev/null 2>&1; then
   # 只取第一条默认路由的网卡名。awk 里刻意不写 exit：一旦提前退出，
   # ip 会在还有输出时收到 SIGPIPE，在 set -e + pipefail 下会直接中断整个脚本
@@ -51,7 +61,9 @@ if [ -z "${GO2_IFACE:-}" ] && command -v ip >/dev/null 2>&1; then
     GO2_IFACE=""
 fi
 export GO2_IFACE="${GO2_IFACE:-enp3s0}"
-export GO2_DOG_IP="${GO2_DOG_IP:-192.168.123.161}"
+# 必须显式赋值：`export GO2_DOG_IP` 会把**调用前**的环境变量重新导入，
+# 反而覆盖掉上面算好的默认值（开发机没设过这个变量时直接用不上）。
+export GO2_DOG_IP="${GO2_DOG_IP}"
 
 if [ -f /opt/ros/humble/setup.bash ]; then
   set +u

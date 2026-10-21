@@ -267,5 +267,6 @@ ros2 topic echo /reflective_wall_status   # 也支持 /reflective_wall_active
 |---|---|
 | [`docs/真机部署与使用手册.md`](docs/真机部署与使用手册.md) | 真机安装、联网、建图、导航、巡检、安全验收、生产部署 |
 | [`docs/WSL2连接Go2完整排错与联调实录.md`](docs/WSL2连接Go2完整排错与联调实录.md) | Windows + WSL2 直连 Go2 的完整排错过程、原理与实测数据 |
+| [`docs/开发日志.md`](docs/开发日志.md) | 每次改动的背景、证据、踩坑与遗留（排错先看这里） |
 | [`docs/仿真与离线验收手册.md`](docs/仿真与离线验收手册.md) | 假狗离线闭环、自动验收、测试和仿真边界 |
 | [`deploy/README.md`](deploy/README.md) | 生产交付工具包说明 |
