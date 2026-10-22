@@ -30,11 +30,27 @@ def generate_launch_description():
                 ],
                 output="screen",
             ),
+            # L1 是非重复扫描：单帧只覆盖 242/360 个方位，直接转 LaserScan 会让
+            # slam_toolbox 每帧看到"随机缺 1/3 方位"的扫描，位姿来回跳、地图糊成
+            # 放射状。这里把最近 10 帧按 TF 变换到同一时刻再合并，方位覆盖补满。
+            Node(
+                package="go2_patrol_driver",
+                executable="cloud_accumulator",
+                name="cloud_accumulator",
+                parameters=[
+                    {
+                        "input_topic": "/utlidar/cloud_deskewed_ros",
+                        "output_topic": "/utlidar/cloud_accumulated",
+                        "base_frame": "base_footprint",
+                    }
+                ],
+                output="screen",
+            ),
             Node(
                 package="pointcloud_to_laserscan",
                 executable="pointcloud_to_laserscan_node",
                 name="pointcloud_to_laserscan",
-                remappings=[("cloud_in", "/utlidar/cloud_deskewed_ros"), ("scan", "/scan")],
+                remappings=[("cloud_in", "/utlidar/cloud_accumulated"), ("scan", "/scan")],
                 parameters=[params],
                 output="screen",
             ),

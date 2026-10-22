@@ -11,3 +11,7 @@ __pycache__/
 
 # Playwright MCP 工具缓存
 .playwright-mcp/
+
+# 现场调试随手导出的地图截图（文档只用 docs/assets 下那几张）
+map_live*.png
+map_view*.png

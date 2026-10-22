@@ -77,6 +77,7 @@ def twist_bridge(context):
             parameters=[
                 {
                     "scan_topic": LaunchConfiguration("scan_topic").perform(context),
+                    "enabled": _bool_param(context, "allow_cmd_vel", True),
                     "require_scan": _bool_param(context, "require_scan", True),
                     "scan_timeout": _float_param(context, "scan_timeout", 1.0),
                     "max_linear": _float_param(context, "max_linear", 0.7),
@@ -96,6 +97,13 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("scan_topic", default_value="/scan"),
+            # 运动闸门：默认允许（导航/巡检需要）。建图、只观测、台架测试时必须显式
+            # 传 allow_cmd_vel:=false —— mapping.launch.py 已经这么做了。
+            env_arg(
+                "allow_cmd_vel",
+                "true",
+                "是否允许把 /cmd_vel 转成官方 MOVE 驱动狗（建图/观测时必须 false）",
+            ),
             # 前置急停看门狗：扫描断流时停车而不是"当作前方畅通"继续走。
             # 无雷达的台架 / 离线夹具可用 GO2_REQUIRE_SCAN=false 关掉（不推荐）。
             env_arg("require_scan", "true", "没有新鲜 /scan 时是否停车保护（默认 true）"),

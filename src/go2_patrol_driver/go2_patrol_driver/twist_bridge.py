@@ -63,6 +63,12 @@ class TwistBridge(Node):
         # 指令断流的看门狗：官方 MOVE 会保持最后一次速度，Nav2 / patrol 一退出
         # /cmd_vel 就停了，狗会带着最后那条速度一直走下去，日志里一个字都没有。
         self.declare_parameter("cmd_vel_timeout", 0.5)
+        # 运动闸门：建图 / 只观测时必须是 false。这一层防的是"没人打算让狗走，
+        # 但 RViz 的 2D Goal Pose、残留的 teleop、或别的节点往 /cmd_vel 发了一帧"
+        # ——twist_bridge 只要活着就会把那一帧翻成官方 MOVE(1008)，狗立刻起步。
+        # 关掉后本节点对 /api/sport/request 一个字节都不发（连 STOP_MOVE 也不发，
+        # 避免和用户手里的遥控器抢控制权）。
+        self.declare_parameter("enabled", True)
 
         gp = self.get_parameter
         self.scan_topic = str(gp("scan_topic").value)
@@ -76,6 +82,7 @@ class TwistBridge(Node):
         self.scan_timeout = float(gp("scan_timeout").value)
         self.require_scan = bool(gp("require_scan").value)
         self.cmd_vel_timeout = float(gp("cmd_vel_timeout").value)
+        self.enabled = bool(gp("enabled").value)
 
         self.commands_sent = 0
         self.minimum = math.inf
@@ -99,6 +106,11 @@ class TwistBridge(Node):
         )
         self.pub_request = self.create_publisher(Request, "/api/sport/request", 10)
         self.timer = self.create_timer(0.05, self.watchdog)
+        if not self.enabled:
+            self.get_logger().warn(
+                "twist_bridge 运动闸门已关闭（enabled=false）：/cmd_vel 一律忽略，"
+                "不会向 /api/sport/request 发送任何指令。建图/观测模式请保持关闭。"
+            )
 
     def on_scan(self, scan):
         self.minimum = front_range(scan, self.half_angle)
@@ -120,6 +132,12 @@ class TwistBridge(Node):
         )
 
     def on_cmd_vel(self, twist: Twist):
+        if not self.enabled:
+            self.get_logger().warn(
+                "收到 /cmd_vel 但运动闸门已关闭，忽略（建图/观测模式不允许软件驱动狗）",
+                throttle_duration_sec=10.0,
+            )
+            return
         if self.shutting_down:
             # 退出流程已经在发刹车了，别再被队列里的旧指令翻回去。
             return
@@ -170,6 +188,8 @@ class TwistBridge(Node):
         都不会让狗自己停下来。这里以"收到过要求走、之后 0.5s 再没有新指令"
         作为断流判据——Nav2 正常停车时会持续发零速度，不会被误判。
         """
+        if not self.enabled:
+            return
         now = self.get_clock().now()
         if now - self.last_emergency < rclpy.duration.Duration(seconds=self.brake_hold_sec):
             self.send_stop_move()

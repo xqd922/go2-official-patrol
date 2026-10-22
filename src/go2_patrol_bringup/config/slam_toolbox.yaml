@@ -1,0 +1,78 @@
+# slam_toolbox 建图参数（真机 Go2 调过的一版）。
+#
+# 和 /opt/ros/humble/share/slam_toolbox/config/mapper_params_online_sync.yaml
+# 的差异都写了理由，改之前先看这里，别把现场调通的参数覆盖回默认值。
+slam_toolbox:
+  ros__parameters:
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+    use_map_saver: true
+    mode: mapping
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    # 默认 5 s 出一次图，走快了会看到"地图追不上机器人"。2 s 兼顾 CPU 与手感。
+    map_update_interval: 2.0
+    # 5 cm 与 Nav2 的 global_costmap 分辨率保持一致，避免导航期重采样。
+    resolution: 0.05
+    # 实测 /scan 的 range_min=0.15、range_max=20.0。默认值写 0.0/25.0 会触发
+    # "exceeds the capabilities of the used Lidar" 警告，且 0 距离会把空点
+    # 当成障碍物栅格化，在机器人脚下糊出一圈假墙。
+    # 取 0.2 而不是 0.15：slam_toolbox 的量程检查按一位小数打日志
+    # （0.15 会被打成 "0.1 m"），正好卡在边界上会刷一条看不懂的告警。
+    min_laser_range: 0.2
+    max_laser_range: 20.0
+    # 默认 0.5 s 只取 2 Hz 扫描，走快了转角处容易漏特征。降到 0.2 s（5 Hz），
+    # 仍远低于雷达的 15 Hz，CPU 压力可控。
+    minimum_time_interval: 0.2
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: true
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    # 默认 0.5 m / 0.5 rad 才做一次匹配。Go2 限速 0.2 m/s，0.5 m 意味着 2.5 s
+    # 才更新一次位姿，转弯时地图会"甩"。调到 0.2 m / 0.2 rad 更跟手。
+    minimum_travel_distance: 0.2
+    minimum_travel_heading: 0.2
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 10.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1

@@ -28,6 +28,7 @@ setup(
             "sport_command = go2_patrol_driver.sport_command:main",
             "tf_chain_guard = go2_patrol_driver.tf_chain_guard:main",
             "cloud_time_sync = go2_patrol_driver.cloud_time_sync:main",
+            "cloud_accumulator = go2_patrol_driver.cloud_accumulator:main",
         ],
     },
 )
