@@ -95,6 +95,19 @@ class PatrolSequence:
             return self.home
         return self.waypoints[self.waypoint_index]
 
+    def following_waypoint(self) -> Optional[Waypoint]:
+        """当前目标之后要去的点位；用于把到点朝向对齐"下一段"（yaw_mode: next）。
+
+        没有后续点位（收工/返航，或本就只有一个点）时返回 None。
+        """
+        if self.phase != PHASE_PATROL or not self.waypoints:
+            return None
+        if self.waypoint_index + 1 < len(self.waypoints):
+            return self.waypoints[self.waypoint_index + 1]
+        if self.loops <= 0 or self.loop_index + 1 < self.loops:
+            return self.waypoints[0]
+        return self.home if (self.return_home and self.home is not None) else None
+
     def on_arrival(self, waypoint: Optional[Waypoint] = None) -> None:
         """到达当前目标后推进状态。"""
         if self.phase == PHASE_DONE:

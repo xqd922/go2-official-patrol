@@ -10,6 +10,8 @@
   <depend>rclpy</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <!-- patrol_manager 订阅 /battery_state(BatteryState) 与 /amcl_pose -->
+  <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>nav2_simple_commander</depend>

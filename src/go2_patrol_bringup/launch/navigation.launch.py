@@ -17,7 +17,10 @@ def generate_launch_description():
     driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory("go2_patrol_driver"), "launch", "driver.launch.py")
-        )
+        ),
+        # 定位自检阶段（只验证 AMCL、不发目标点）可以传 allow_cmd_vel:=false，
+        # 把 twist_bridge 的运动闸门关死，保证 Nav2 即使误发 /cmd_vel 狗也不会动。
+        launch_arguments={"allow_cmd_vel": LaunchConfiguration("allow_cmd_vel")}.items(),
     )
     map_yaml = LaunchConfiguration("map")
     params_file = LaunchConfiguration("params_file")
@@ -58,6 +61,11 @@ def generate_launch_description():
                 "rviz_config",
                 default_value=os.path.join(bringup, "rviz", "patrol.rviz"),
                 description="RViz 配置；默认巡检视图（地图/代价地图/路径/定位粒子）",
+            ),
+            DeclareLaunchArgument(
+                "allow_cmd_vel",
+                default_value="true",
+                description="是否允许 Nav2 通过 twist_bridge 驱动狗；只做定位自检时设 false",
             ),
             perception,
             driver,

@@ -24,11 +24,37 @@ rviz: false
 
 # 巡检任务参数（对应 patrol_manager 的节点参数）
 patrol:
-  loops: 1                 # 巡检圈数
+  loops: 1                 # 巡检圈数；0=无限循环（跑完一圈就停的服务要保持 1）
   return_home: true        # 巡检结束回 home 点
   battery_low: 20.0        # 低电量保护阈值（%）
-  arrival_tolerance: 0.30  # 到点判定半径（米）
+  arrival_tolerance: 0.30  # 到点判定半径（米）：会写进 Nav2 goal_checker
+  # 导航失败策略：同一目标连续失败 goal_retry_limit 次（含首次，即最多尝试这么多次）后，
+  # 按 on_goal_failure 处理——abort=终止本次巡检并在日志里给出排查步骤；skip=跳过该点继续，慎用
+  # （每次重试之间等 goal_retry_delay 秒）
+  goal_retry_limit: 3
+  goal_retry_delay: 5.0
+  on_goal_failure: abort
 
-# 额外注入到 site.env 的环境变量（一般留空）
-# env:
-#   ROS_DOMAIN_ID: 0
+# 安全阈值（留空 = 用驱动默认值）。只在装了防护罩 / 货箱导致外形变化，
+# 或现场地面打滑需要更保守限速时才改。三个距离必须递增：急停 < 停车 < 减速
+# （只写其中一两个时，缺的按驱动默认值参与比较；负值/非数字会被拒绝）。
+# 写错会被 apply_site.sh 的自检拦下（改完必须重跑 apply_site.sh 才生效）。
+safety:
+  max_linear: 0.7             # 前进速度上限（m/s）
+  max_angular: 1.0            # 转向角速度上限（rad/s）
+  front_half_angle_deg: 30.0  # 前置急停只看前方这个半角（度）
+  emergency_distance: 0.20    # 小于该距离立即急停并压住刹车（米）
+  stop_distance: 0.35         # 小于该距离停车（米）
+  slow_distance: 0.60         # 小于该距离速度减半（米）
+  cmd_vel_timeout: 0.5        # 多久没收到 /cmd_vel 就补发刹车（秒）
+
+# 额外注入到 site.env 的环境变量（run_site.sh 会 source 并以 set -a 导出给 launch）
+env:
+  # TF 补链策略：base_footprint → base_link 由谁发。
+  #   auto（默认）启动后探测，没人发才由 tf_chain_guard 补；
+  #   always 无条件补（已确认机器狗自身不发这段 TF）；never 完全不补。
+  # 判断依据见节点日志，现场可用 ros2 run tf2_tools view_frames 复核。
+  GO2_BASE_FOOTPRINT_TF: auto
+  # 前置急停看门狗：/scan 断流时停车（默认 true）。
+  # 只有无雷达的台架才设 false——设成 false 等于关掉"扫描没了就停"这层保护。
+  GO2_REQUIRE_SCAN: "true"

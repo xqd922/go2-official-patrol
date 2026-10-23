@@ -3,14 +3,26 @@ import math
 import numpy as np
 
 
+def limit_nearest(points, max_points):
+    """点数超过上限时只保留最近的 max_points 个（保证单帧耗时可控）。
+
+    单独抽出来是因为调用方必须和聚类用同一份点：euclidean_cluster 返回的标签是
+    与"截断后"的点一一对应的，拿它去索引没截断的原始数组会下标越界
+    （真机上点云上万点很常见，所以这条路径不是理论问题）。
+    """
+    array = np.asarray(points)
+    if max_points and len(array) > max_points:
+        order = np.argsort(np.linalg.norm(array[:, :2], axis=1))
+        return array[order[:max_points]]
+    return array
+
+
 def euclidean_cluster(points_xy, eps, min_points, max_points=10000):
     """Small DBSCAN-style 2D clustering with grid acceleration."""
     points = np.asarray(points_xy, dtype=np.float64)
     if points.ndim != 2 or points.shape[1] != 2 or len(points) == 0:
         return np.empty(0, dtype=np.int32)
-    if max_points > 0 and len(points) > max_points:
-        order = np.argsort(np.linalg.norm(points, axis=1))
-        points = points[order[:max_points]]
+    points = limit_nearest(points, max_points)
 
     keys = np.floor(points / max(eps, 1e-6)).astype(np.int64)
     buckets = {}

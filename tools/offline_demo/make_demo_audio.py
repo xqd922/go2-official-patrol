@@ -7,6 +7,9 @@
 用法:
   python3 tools/offline_demo/make_demo_audio.py
   python3 tools/offline_demo/make_demo_audio.py --out-dir <站点>/audio --ids home zone_ne
+
+默认**不覆盖**已存在的 wav，方便把真人语音（如 `deploy/tools/make_voice_wavs.ps1`
+生成的中文播报）放进同一目录后继续复用；要重新生成提示音加 `--force`。
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ TONES = {
     "zone_sw": (493.88, 3, 0.15),       # B4
     "zone_nw": (440.00, 3, 0.15),       # A4
     "equipment_zone": (392.00, 4, 0.20),  # G4
+    "turn_careful": (329.63, 3, 0.10),   # E4：转弯提醒，短促三连音
 }
 FALLBACK = (349.23, 3, 0.15)  # F4：未登记的 id
 
@@ -75,6 +79,17 @@ def speech_ids(site_dir: str) -> list[str]:
         speech = str(item.get("speech") or item.get("name") or "").strip()
         if speech and speech not in ids:
             ids.append(speech)
+    # 站点级语音（如 patrol.turn_speech=转弯提醒）也要生成，否则到点/转弯只剩日志
+    site_path = os.path.join(site_dir, "site.yaml")
+    if os.path.isfile(site_path):
+        with open(site_path, encoding="utf-8") as handle:
+            site = yaml.safe_load(handle) or {}
+        for key, value in (site.get("patrol") or {}).items():
+            if not key.endswith("_speech") or value is None:
+                continue
+            speech = str(value).strip()
+            if speech and speech not in ids:
+                ids.append(speech)
     return ids
 
 
@@ -83,6 +98,7 @@ def main() -> int:
     parser.add_argument("--site-dir", default=DEFAULT_SITE, help="站点目录（读 waypoints.yaml）")
     parser.add_argument("--out-dir", default=None, help="语音输出目录，默认 <站点>/audio")
     parser.add_argument("--ids", nargs="*", default=None, help="只生成指定 id（默认按点位全生成）")
+    parser.add_argument("--force", action="store_true", help="覆盖已存在的 wav（默认保留，便于放真人语音）")
     args = parser.parse_args()
 
     site_dir = os.path.abspath(args.site_dir)
@@ -94,15 +110,21 @@ def main() -> int:
         print("[make_demo_audio] 没有可生成的 id（waypoints.yaml 里 speech/name 都为空）")
         return 0
 
+    skipped = []
     for speech_id in ids:
         path = os.path.join(out_dir, f"{speech_id}.wav")
+        if os.path.exists(path) and not args.force:
+            skipped.append(os.path.basename(path))
+            continue
         write_wav(path, speech_id)
         frequency, beats, beat_seconds = TONES.get(speech_id, FALLBACK)
         print(
             f"[make_demo_audio] {os.path.basename(path)}"
             f"（{frequency:.0f}Hz x{beats} 拍 x{beat_seconds:.2f}s）"
         )
-    print(f"[make_demo_audio] 共 {len(ids)} 个，输出目录 {out_dir}")
+    if skipped:
+        print(f"[make_demo_audio] 已存在，跳过 {len(skipped)} 个：{', '.join(skipped)}（加 --force 覆盖）")
+    print(f"[make_demo_audio] 共 {len(ids)} 个 id，输出目录 {out_dir}")
     return 0
 
 

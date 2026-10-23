@@ -8,6 +8,7 @@ import math
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from nav_msgs.msg import Odometry
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -30,10 +31,11 @@ from go2_patrol_patrol.waypoints import Waypoint, load_waypoints
 COLOR_PENDING = (0.2, 0.6, 1.0, 0.9)   # 未访问：蓝
 COLOR_ACTIVE = (1.0, 0.85, 0.0, 1.0)   # 当前目标：黄
 COLOR_DONE = (0.2, 0.9, 0.3, 0.9)      # 已到达：绿
+COLOR_SKIPPED = (1.0, 0.55, 0.1, 0.9)  # 重试耗尽后被跳过：橙（别和"已到达"混）
 COLOR_HOME = (1.0, 0.3, 0.3, 0.9)      # 返航点：红
 
 
-def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
+def pose_message(navigator: BasicNavigator, waypoint: Waypoint, yaw: float = None) -> PoseStamped:
     pose = PoseStamped()
     pose.header.frame_id = (
         navigator.get_parameter("map_frame").value
@@ -44,8 +46,9 @@ def pose_message(navigator: BasicNavigator, waypoint: Waypoint) -> PoseStamped:
     pose.pose.position.x = waypoint.x
     pose.pose.position.y = waypoint.y
     pose.pose.position.z = 0.0
-    pose.pose.orientation.z = math.sin(waypoint.yaw * 0.5)
-    pose.pose.orientation.w = math.cos(waypoint.yaw * 0.5)
+    goal_yaw = waypoint.yaw if yaw is None else yaw
+    pose.pose.orientation.z = math.sin(goal_yaw * 0.5)
+    pose.pose.orientation.w = math.cos(goal_yaw * 0.5)
     return pose
 
 
@@ -57,6 +60,22 @@ class PatrolManager(Node):
         self.declare_parameter("return_home", True)
         self.declare_parameter("battery_low", 20.0)
         self.declare_parameter("arrival_tolerance", 0.30)
+        # 行进中播报：转弯提醒 + 到点语音提前播，避免"停下来说话"的停顿感
+        self.declare_parameter("turn_speech", "")
+        self.declare_parameter("turn_speech_w", 0.30)
+        self.declare_parameter("turn_speech_min_interval", 6.0)
+        self.declare_parameter("speech_lead_distance", 0.0)
+        # ≥0 时覆盖点位自身的 dwell（秒），用于统一压低"到点停留"
+        self.declare_parameter("dwell_override", -1.0)
+        # 到点朝向策略：fixed 用点位 yaw / travel 朝进点方向 / next 朝下一段方向
+        self.declare_parameter("yaw_mode", "fixed")
+        # 导航失败的重试策略：失败后等 goal_retry_delay 秒再试，
+        # 连续 goal_retry_limit 次仍失败就按 on_goal_failure 处理（abort 终止 / skip 跳过该点）。
+        # 原实现只打一行 warn 就立刻重发：点位不可达时每 0.5s 重发一次、无限刷屏，
+        # 而且进程不死，systemd 的 Restart=on-failure 也救不了。
+        self.declare_parameter("goal_retry_limit", 3)
+        self.declare_parameter("goal_retry_delay", 5.0)
+        self.declare_parameter("on_goal_failure", "abort")
 
         self.navigator = BasicNavigator()
         self.navigator.waitUntilNav2Active(localizer="amcl")
@@ -64,6 +83,19 @@ class PatrolManager(Node):
         path = self.get_parameter("waypoints_file").value
         self.battery_low = float(self.get_parameter("battery_low").value)
         self.arrival_tolerance = float(self.get_parameter("arrival_tolerance").value)
+        self.turn_speech = str(self.get_parameter("turn_speech").value).strip()
+        self.turn_speech_w = float(self.get_parameter("turn_speech_w").value)
+        self.turn_speech_min_interval = float(
+            self.get_parameter("turn_speech_min_interval").value
+        )
+        self.speech_lead_distance = float(self.get_parameter("speech_lead_distance").value)
+        self.dwell_override = float(self.get_parameter("dwell_override").value)
+        self.yaw_mode = str(self.get_parameter("yaw_mode").value).strip().lower() or "fixed"
+        self.goal_retry_limit = max(1, int(self.get_parameter("goal_retry_limit").value))
+        self.goal_retry_delay = float(self.get_parameter("goal_retry_delay").value)
+        self.on_goal_failure = (
+            str(self.get_parameter("on_goal_failure").value).strip().lower() or "abort"
+        )
         self.waypoints = load_waypoints(path)
         self.sequence = PatrolSequence(
             self.waypoints,
@@ -76,10 +108,25 @@ class PatrolManager(Node):
         self.finished = False
         self.low_battery = False
         self.current_goal = False
+        # 我们自己主动取消目标（暂停/停止/低电量）时置位：此时被取消的目标要立即重发，
+        # 不要算进"失败重试"的账上，否则 resume 会莫名多等 goal_retry_delay 秒。
+        self.cancel_requested = False
+        self.retry_after = self.get_clock().now()
+        self.attempt_name = ""
+        self.attempt_count = 0
+        self.arrivals_done = 0
         self.active_waypoint = None
         self.amcl_pose = None
         self.dwell_until = self.get_clock().now()
+        self.linear_speed = 0.0
+        self.angular_speed = 0.0
+        self.turning = False
+        self.turn_speech_until = 0
+        self.lead_spoken = False
         self.visited: set[int] = set()   # 本圈已到达的点位下标（用于 RViz 标记着色）
+        # 重试耗尽后被跳过的点位（on_goal_failure=skip）：单独一份，
+        # 否则 RViz 里跳过点会被涂成绿色，现场以为"这个点已经巡过了"
+        self.skipped: set[int] = set()
         self.shown_loop = 0
 
         speech_qos = QoSProfile(
@@ -98,6 +145,8 @@ class PatrolManager(Node):
         self.create_subscription(
             PoseWithCovarianceStamped, "/amcl_pose", self.on_pose, qos_profile_sensor_data
         )
+        # /odom 只用来判断"现在是不是在转弯"，用于行进中播报（不参与导航决策）
+        self.create_subscription(Odometry, "/odom", self.on_odom, 20)
         self.create_service(Trigger, "/patrol/start", self.on_start)
         self.create_service(Trigger, "/patrol/pause", self.on_pause)
         self.create_service(Trigger, "/patrol/resume", self.on_resume)
@@ -108,7 +157,14 @@ class PatrolManager(Node):
             self.get_logger().error(f"{path} 里没有点位，巡检无事可做")
         self.get_logger().info(
             f"巡检任务就绪：点位 {len(self.waypoints)} 个，{self.sequence.describe()}，"
-            f"低电量阈值 {self.battery_low:.0f}%，到点期望容差 {self.arrival_tolerance:.2f}m"
+            f"低电量阈值 {self.battery_low:.0f}%，到点期望容差 {self.arrival_tolerance:.2f}m，"
+            f"转弯提醒 {self.turn_speech or '关闭'}（|w|≥{self.turn_speech_w:.2f}），"
+            f"提前播报 {self.speech_lead_distance:.2f}m，到点朝向 {self.yaw_mode}"
+        )
+        self.get_logger().info(
+            f"导航失败策略：同一目标连续失败 {self.goal_retry_limit} 次（含首次，即最多尝试 "
+            f"{self.goal_retry_limit} 次）、每次间隔 {self.goal_retry_delay:.0f}s，"
+            f"仍失败则 {self.on_goal_failure}"
         )
 
     # ---------------------------------------------------------------- 播报
@@ -130,6 +186,8 @@ class PatrolManager(Node):
             marker.scale.x = marker.scale.y = marker.scale.z = 0.25
             if waypoint is self.active_waypoint:
                 color = COLOR_ACTIVE
+            elif index in self.skipped:
+                color = COLOR_SKIPPED
             elif index in self.visited:
                 color = COLOR_DONE
             elif self.sequence.returning and self.sequence.home_index == index:
@@ -157,11 +215,61 @@ class PatrolManager(Node):
             markers.markers.append(label)
         self.pub_markers.publish(markers)
 
+    def say_id(self, speech_id: str, tag: str = ""):
+        """只发 /robot/say，不等播放结束：voice_player 在线程里播，不阻塞导航。"""
+        if not speech_id:
+            return
+        message = String()
+        message.data = speech_id
+        self.pub_say.publish(message)
+        suffix = f"（{tag}）" if tag else ""
+        self.get_logger().info(f"播报 {speech_id}{suffix}")
+
     def say(self, waypoint: Waypoint):
         """每个点到点播报一次（多圈巡检每圈都会播）。"""
-        message = String()
-        message.data = waypoint.speech or waypoint.name
-        self.pub_say.publish(message)
+        self.say_id(waypoint.speech or waypoint.name, "到点")
+
+    def maybe_lead_speech(self):
+        """距目标还有 speech_lead_distance 米时先播报，别等停下来再说。"""
+        waypoint = self.active_waypoint
+        if waypoint is None or self.lead_spoken or self.speech_lead_distance <= 0.0:
+            return
+        if self.amcl_pose is None:
+            return
+        distance = math.hypot(self.amcl_pose[0] - waypoint.x, self.amcl_pose[1] - waypoint.y)
+        if distance <= self.speech_lead_distance:
+            self.lead_spoken = True
+            self.say_id(
+                waypoint.speech or waypoint.name,
+                f"提前播报，距 {waypoint.name} {distance:.2f}m",
+            )
+
+    def on_odom(self, message: Odometry):
+        self.linear_speed = math.hypot(
+            message.twist.twist.linear.x, message.twist.twist.linear.y
+        )
+        self.angular_speed = message.twist.twist.angular.z
+        self.maybe_turn_speech()
+
+    def maybe_turn_speech(self):
+        """进入转弯的瞬间播一次提醒，带冷却；人还在走，所以听起来"边走边说"。"""
+        turning = self.current_goal and abs(self.angular_speed) >= self.turn_speech_w
+        if not turning:
+            self.turning = False      # 退出转弯，允许下一个弯再播
+            return
+        if self.turning:              # 同一个弯道只播一次
+            return
+        self.turning = True
+        if not self.turn_speech or self.paused or self.stop_requested:
+            return
+        now = self.get_clock().now().nanoseconds
+        if now < self.turn_speech_until:
+            return
+        self.turn_speech_until = now + int(self.turn_speech_min_interval * 1e9)
+        self.say_id(
+            self.turn_speech,
+            f"转弯提醒 v={self.linear_speed:.2f}m/s w={self.angular_speed:+.2f}rad/s",
+        )
 
     def log_arrival(self, waypoint: Waypoint):
         if self.amcl_pose is None:
@@ -191,13 +299,19 @@ class PatrolManager(Node):
             f"电量 {percentage:.1f}% ≤ 阈值 {self.battery_low:.1f}%，中止巡检并返航 home"
         )
         if self.current_goal:
+            self.cancel_requested = True
             self.navigator.cancelTask()
         self.sequence.request_return_home()
 
     def on_start(self, request, response):
         if self.finished:
             response.success = False
-            response.message = "patrol already finished"
+            response.message = (
+                "patrol already finished：本次巡检已结束（到达 "
+                f"{self.arrivals_done} 个点位），/patrol/start 不能重新开始——"
+                "要重新巡检请重启服务（systemctl restart go2-patrol@<站点>），"
+                "无人值守请把站点 loops 设为 0"
+            )
             return response
         self.paused = False
         self.stop_requested = False
@@ -207,6 +321,7 @@ class PatrolManager(Node):
 
     def on_pause(self, request, response):
         if self.current_goal:
+            self.cancel_requested = True
             self.navigator.cancelTask()
         self.paused = True
         response.success = True
@@ -227,18 +342,111 @@ class PatrolManager(Node):
 
     def request_stop(self, reason: str):
         if self.current_goal:
+            self.cancel_requested = True
             self.navigator.cancelTask()
         self.paused = False
         self.stop_requested = True
         self.get_logger().info(f"收到停止请求（{reason}）")
 
     # ---------------------------------------------------------------- 调度
-    def send_goal(self, waypoint: Waypoint):
-        self.navigator.goToPose(pose_message(self.navigator, waypoint))
+    def goal_yaw(self, waypoint: Waypoint) -> float:
+        """按 yaw_mode 决定目标朝向，避免"到点先转 180°、起步再转回来"。
+
+        现场反馈"走到角落总是原地转半天"的根因就是点位 yaw 与行进方向无关：
+        每到一个角要转到位（最多 180°）再转身去下一段（再 90°），一圈白转几百米角度。
+        travel/next 让朝向跟随实际行进方向，只在真正需要对准的点（如正对设备拍照）用 fixed。
+        """
+        mode = (waypoint.yaw_mode or self.yaw_mode or "fixed").strip().lower()
+        if mode in ("travel", "incoming"):
+            if self.amcl_pose is not None:
+                dx = waypoint.x - self.amcl_pose[0]
+                dy = waypoint.y - self.amcl_pose[1]
+                if math.hypot(dx, dy) > 0.15:
+                    return math.atan2(dy, dx)
+            return waypoint.yaw
+        if mode in ("next", "outgoing", "next_leg"):
+            following = self.sequence.following_waypoint()
+            if following is not None:
+                dx = following.x - waypoint.x
+                dy = following.y - waypoint.y
+                if math.hypot(dx, dy) > 0.05:
+                    return math.atan2(dy, dx)
+            return waypoint.yaw
+        return waypoint.yaw
+
+    def send_goal(self, waypoint: Waypoint) -> bool:
+        """下发目标；返回是否被接受。被拒时不自己"重试"——交给 handle_goal_failure 记账。
+
+        这里**不**记账：暂停/恢复、低电量取消后重发都会重新下发同一个目标，
+        把"下发次数"当重试次数的话，现场 pause/resume 两次就能把重试额度耗光，
+        之后第一次真实失败会直接终止巡检。
+        """
+        yaw = self.goal_yaw(waypoint)
+        accepted = self.navigator.goToPose(pose_message(self.navigator, waypoint, yaw))
+        # 只在明确返回 False（Nav2 拒绝/服务器不可用）时当作失败：
+        # 不同版本的 goToPose 返回值语义有差异，None 一律按"已受理"处理，避免误判。
+        if accepted is False:
+            self.get_logger().error(
+                f"前往 {waypoint.name} 的目标被 Nav2 拒绝（位姿非法或导航服务器未就绪）"
+            )
+            return False
         self.current_goal = True
         self.active_waypoint = waypoint
+        self.lead_spoken = False
         self.publish_markers()
-        self.get_logger().info(f"前往 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f})")
+        self.get_logger().info(
+            f"前往 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f})"
+            f"，到点朝向 {math.degrees(yaw):.0f}°"
+        )
+        return True
+
+    def handle_goal_failure(self, waypoint: Waypoint, reason: str):
+        """失败后先退避重试，超过上限再按 on_goal_failure 处理。
+
+        attempt_count 记的是**同一目标的连续失败次数**（不含我们自己取消的那次），
+        所以 goal_retry_limit=3 表示"最多尝试 3 次（首次 + 2 次重试）"。
+        """
+        if waypoint.name != self.attempt_name:
+            self.attempt_name = waypoint.name
+            self.attempt_count = 0
+        self.attempt_count += 1
+        if self.attempt_count >= self.goal_retry_limit:
+            self.give_up_on(waypoint, reason)
+            return
+        self.retry_after = self.get_clock().now() + Duration(seconds=self.goal_retry_delay)
+        self.get_logger().warn(
+            f"{waypoint.name} {reason}（连续第 {self.attempt_count}/{self.goal_retry_limit} 次），"
+            f"{self.goal_retry_delay:.0f}s 后重试"
+        )
+
+    def clear_attempts(self):
+        """目标顺利到达 / 是我们自己取消的：失败计数清零，重新开始记。"""
+        self.attempt_name = ""
+        self.attempt_count = 0
+
+    def give_up_on(self, waypoint: Waypoint, reason: str):
+        """连续失败到上限：默认终止本次巡检，而不是静默跳过巡检点。"""
+        message = (
+            f"{waypoint.name} 连续 {self.attempt_count} 次{reason}"
+            f"（上限 {self.goal_retry_limit} 次）"
+        )
+        if self.on_goal_failure == "skip":
+            self.get_logger().error(f"{message}，按 on_goal_failure=skip 跳过该点继续巡检")
+            index = self.waypoints.index(waypoint)
+            self.sequence.on_arrival(waypoint)
+            self.skipped.add(index)
+            self.clear_attempts()
+            self.publish_markers()
+            self.retry_after = self.get_clock().now()
+            return
+        self.get_logger().error(
+            f"{message}：终止本次巡检。现场排查顺序："
+            "① ros2 topic echo /amcl_pose 看定位是否收敛；"
+            "② RViz 里给该点发单点目标，看能否规划出路径；"
+            f"③ 核对点位 {waypoint.name} ({waypoint.x:.2f}, {waypoint.y:.2f}) 是否贴墙或落在障碍里"
+            "（tools/offline_demo/check_site.py 可离线复核净空）"
+        )
+        self.finish(f"目标 {waypoint.name} 连续失败")
 
     def tick(self):
         if self.finished:
@@ -252,45 +460,87 @@ class PatrolManager(Node):
             return
 
         if not self.current_goal:
+            if self.get_clock().now() < self.retry_after:
+                return      # 失败退避中，别每 0.5s 重发一次
             waypoint = self.sequence.next_goal()
             if waypoint is None:
                 self.finish("巡检任务完成")
                 return
-            self.send_goal(waypoint)
+            if not self.send_goal(waypoint):
+                self.handle_goal_failure(waypoint, "目标被拒绝")
             return
 
         if not self.navigator.isTaskComplete():
+            self.maybe_lead_speech()
             return
 
         result = self.navigator.getResult()
         waypoint = self.active_waypoint
+        cancel_requested = self.cancel_requested
+        self.cancel_requested = False
         self.current_goal = False
         self.active_waypoint = None
         if waypoint is None:
             return
 
+        if (
+            cancel_requested
+            and self.sequence.returning
+            and self.sequence.home is not None
+            and waypoint.name != self.sequence.home.name
+        ):
+            # 低电量返航刚把阶段切成 RETURN_HOME，Nav2 对"上一个点"的到达回报才到。
+            # 这时不能按到点处理：on_arrival 在 RETURN_HOME 阶段会直接置 DONE，
+            # 返航被静默取消、狗停在最后一个巡检点不动。下一步会直接去 home。
+            self.get_logger().warn(
+                f"已切到返航，忽略 {waypoint.name} 的迟到到达回报"
+                f"（下一个目标就是 {self.sequence.home.name}）"
+            )
+            return
+
         if result == TaskResult.SUCCEEDED:
-            self.say(waypoint)
+            if not self.lead_spoken:      # 已经提前播过就不重复播
+                self.say(waypoint)
             self.log_arrival(waypoint)
-            self.dwell_until = self.get_clock().now() + Duration(seconds=waypoint.dwell)
+            dwell = self.dwell_override if self.dwell_override >= 0.0 else waypoint.dwell
+            self.dwell_until = self.get_clock().now() + Duration(seconds=dwell)
             index = self.waypoints.index(waypoint)
             self.sequence.on_arrival(waypoint)
+            self.arrivals_done += 1
+            self.skipped.discard(index)
+            self.clear_attempts()
             if self.sequence.loop_index != self.shown_loop:
                 self.shown_loop = self.sequence.loop_index
                 self.visited.clear()
+                self.skipped.clear()
             self.visited.add(index)
             self.publish_markers()
             self.get_logger().info(f"到达 {waypoint.name} → {self.sequence.describe()}")
         elif result == TaskResult.FAILED:
-            self.get_logger().warn(f"前往 {waypoint.name} 失败，稍后重试")
+            self.handle_goal_failure(waypoint, "导航失败")
+        elif cancel_requested:
+            # 暂停/停止/低电量时我们自己取消的：恢复后立即重发，不算失败
+            self.clear_attempts()
+            self.get_logger().info(f"目标 {waypoint.name} 已按请求取消，恢复后立即重发")
         else:
-            self.get_logger().info(f"目标 {waypoint.name} 被取消（{result}）")
+            # 既不是 FAILED、也不是我们请求的取消（别的客户端 cancel / 目标被抢占）：
+            # 同样要走失败记账，否则这条路径上重试没有上限，abort 的承诺不成立。
+            self.handle_goal_failure(waypoint, f"被 Nav2 取消（{result}）")
 
     def finish(self, reason: str):
         if self.finished:
             return
         self.finished = True
-        self.get_logger().info(f"巡检结束（{reason}），关闭 Nav2 生命周期节点")
+        skipped_note = f"，跳过 {len(self.skipped)} 个点位（on_goal_failure=skip）" if self.skipped else ""
+        self.get_logger().info(
+            f"巡检结束（{reason}）：共到达 {self.arrivals_done} 个点位{skipped_note}，"
+            f"{self.sequence.describe()}，关闭 Nav2 生命周期节点"
+        )
+        self.get_logger().info(
+            "本次巡检已结束，节点继续运行但不动作（巡检定时器已停、Nav2 生命周期已关闭）："
+            "要重新巡检请重启服务（sudo systemctl restart go2-patrol@<站点>）；"
+            "无人值守场景把站点 loops 设为 0（无限圈）"
+        )
         self.timer.cancel()
         try:
             self.navigator.lifecycleShutdown()
@@ -302,7 +552,10 @@ def main(args=None):
     rclpy.init(args=args)
     manager = PatrolManager()
     try:
-        while rclpy.ok() and not manager.finished:
+        # finished 之后**继续 spin**（tick 里已经有 finished 守卫，不会再有动作）：
+        # 否则进程直接退出、/patrol/start 服务消失，现场 `ros2 service call` 只会一直
+        # 挂着等超时，看不出"这次巡检已经结束了"。活着才能回答它。
+        while rclpy.ok():
             rclpy.spin_once(manager, timeout_sec=0.2)
     except KeyboardInterrupt:
         pass

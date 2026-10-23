@@ -58,6 +58,48 @@ main 合并 → 打 tag v0.1.0
 | `tools/make_blank_map.py` | 生成空白站点骨架，台架自检用 | 开发机 |
 | `site.example/` | 站点资产模板（照它准备现场资产） | 交付准备 |
 
+## 站点参数（现场只改 `site.yaml`）
+
+`site.yaml` 是站点差异的唯一入口，`apply_site.sh` 会据此生成
+`nav2_params.yaml`（AMCL 固定起点、`robot_radius`、到点容差）与 `site.env`（其余参数）。
+
+| `site.yaml` 字段 | 落到哪里 | 说明 |
+|---|---|---|
+| `initial_pose` | `nav2_params.yaml` 的 `amcl.set_initial_pose/initial_pose` | 开机自启能自动定位的关键，写错会发散 |
+| `robot_radius` / `patrol.arrival_tolerance` | 代价地图 / Nav2 `goal_checker` | 按机身与现场留余量 |
+| `patrol.loops` | `patrol_manager.loops` | `1`=跑完一圈收工（服务仍 active）；`0`=无限循环 |
+| `patrol.battery_low` / `return_home` | 低电量返航与收工返航 | 返航点取 `home: true` 的那个点位 |
+| `patrol.yaw_mode` | 到点朝向策略 | `fixed`/`travel`/`next`，路口用 `travel` 少原地转 |
+| `patrol.goal_retry_limit` / `goal_retry_delay` / `on_goal_failure` | 导航失败策略 | 同一目标连续失败 3 次（含首次，即最多尝试 3 次）后按 `on_goal_failure` 处理，每次间隔 5s |
+| `safety.*` | `twist_bridge` 的限速与急停阈值 | 速度上限、急停/停车/减速距离、`cmd_vel_timeout`；三个距离必须递增，写反会被自检拦下 |
+| `env.GO2_BASE_FOOTPRINT_TF` | `tf_chain_guard.mode` | `auto`（默认，探测后按需补 `base_footprint → base_link`）/ `always` / `never` |
+| `env.GO2_REQUIRE_SCAN` | `twist_bridge.require_scan` | 默认 `true`：`/scan` 断流即停车保护；无雷达台架才设 `false` |
+| `env.*`（其它） | 直接写进 `site.env` 并 export | 例如 `ROS_DOMAIN_ID` |
+
+改完执行 `sudo deploy/apply_site.sh --site-dir <站点目录> --name <站点名>`，
+它会重生成参数并跑一次 `preflight.sh` 自检。
+
+> 落地是**先预检源目录、再覆盖站点目录**的：`apply_site.sh` 第一步用
+> `render_site.py --check-only` 把源目录的 `site.yaml` 查一遍（安全阈值、未知键、
+> 段类型），不通过就直接退出、**一个文件都不动**。以前是先把资产拷过去再校验，
+> `site.yaml` 写错时会把已上线站点的配置换成坏的那份，而参数文件还是旧的——
+> 目录进入半成品状态，现场排查方向全错。
+>
+> 顺便提醒 `iface` 的优先级：站点 `site.yaml` 的 `iface` 写进站点 `site.env` 后，
+> `preflight.sh` 也会按它校验网卡（不再只看机器级的 `/etc/go2/site.env`），
+> 所以网卡名写错会当场 `[FAIL]`，而不是"自检通过但收不到狗的数据"。
+
+> `site.env` 由 `run_site.sh` 以 `set -a` 读入后再 `exec ros2 launch`，所以里面的变量
+> （包括 `env:` 段的自定义变量）确实会进到 launch 子进程的环境里——
+> `driver.launch.py` 读的就是这些 `GO2_*` 变量——规则是 `GO2_` + launch 参数名大写
+> （`max_linear` ← `GO2_MAX_LINEAR`、`require_scan` ← `GO2_REQUIRE_SCAN`、
+> `base_footprint_tf` ← `GO2_BASE_FOOTPRINT_TF`），所以 `set -a` 这一步不能少。
+>
+> 覆盖优先级：巡检与安全阈值（`patrol.*` / `safety.*`）在 `site.env` 里写成
+> `GO2_X=${GO2_X:-值}`，所以**命令行/环境变量优先**——现场临时降速验证可以直接
+> `GO2_MAX_LINEAR=0.4 deploy/run_site.sh office`；网卡与狗地址是裸赋值，**站点 site.yaml 优先**
+> 于机器级 `/etc/go2/site.env`。改 `site.yaml` 后仍需重跑 `apply_site.sh` 才生效。
+
 ## 一次性验收（裸机跑通）
 
 ```bash
@@ -100,7 +142,8 @@ systemctl status go2-patrol@office                 # 状态
 journalctl -u go2-patrol@office -f                 # 实时日志
 sudo systemctl restart go2-patrol@office           # 重启
 sudo /opt/go2/current/deploy/preflight.sh office   # 手动自检
-ros2 service call /patrol/start std_srvs/srv/Trigger   # 手动触发巡检（需先 source 环境）
+ros2 service call /patrol/start std_srvs/srv/Trigger   # 取消暂停（启动时是自动开跑的；巡检结束后调它无效）
 ```
 
-详细交付流程、现场标定与验收清单见 [`docs/生产交付手册.md`](../docs/生产交付手册.md)。
+详细交付流程、现场标定与验收清单见
+[`docs/真机部署与使用手册.md`](../docs/真机部署与使用手册.md)。

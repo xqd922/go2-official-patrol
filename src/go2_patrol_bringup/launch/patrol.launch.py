@@ -40,6 +40,27 @@ def generate_launch_description():
                 "arrival_tolerance": ParameterValue(
                     LaunchConfiguration("arrival_tolerance"), value_type=float
                 ),
+                "turn_speech": LaunchConfiguration("turn_speech"),
+                "turn_speech_w": ParameterValue(
+                    LaunchConfiguration("turn_speech_w"), value_type=float
+                ),
+                "turn_speech_min_interval": ParameterValue(
+                    LaunchConfiguration("turn_speech_min_interval"), value_type=float
+                ),
+                "speech_lead_distance": ParameterValue(
+                    LaunchConfiguration("speech_lead_distance"), value_type=float
+                ),
+                "dwell_override": ParameterValue(
+                    LaunchConfiguration("dwell_override"), value_type=float
+                ),
+                "yaw_mode": LaunchConfiguration("yaw_mode"),
+                "goal_retry_limit": ParameterValue(
+                    LaunchConfiguration("goal_retry_limit"), value_type=int
+                ),
+                "goal_retry_delay": ParameterValue(
+                    LaunchConfiguration("goal_retry_delay"), value_type=float
+                ),
+                "on_goal_failure": LaunchConfiguration("on_goal_failure"),
             }
         ],
         output="screen",
@@ -68,6 +89,51 @@ def generate_launch_description():
             DeclareLaunchArgument("return_home", default_value="true"),
             DeclareLaunchArgument("battery_low", default_value="20.0"),
             DeclareLaunchArgument("arrival_tolerance", default_value="0.30"),
+            DeclareLaunchArgument(
+                "turn_speech",
+                default_value="",
+                description="转弯提醒语音 id（audio/<id>.wav）；空=关闭",
+            ),
+            DeclareLaunchArgument(
+                "turn_speech_w",
+                default_value="0.30",
+                description="触发转弯提醒的角速度阈值（rad/s）",
+            ),
+            DeclareLaunchArgument(
+                "turn_speech_min_interval",
+                default_value="6.0",
+                description="两次转弯提醒的最小间隔（秒）",
+            ),
+            DeclareLaunchArgument(
+                "speech_lead_distance",
+                default_value="0.0",
+                description="距目标多少米时提前播报该点语音；0=到点才播",
+            ),
+            DeclareLaunchArgument(
+                "dwell_override",
+                default_value="-1.0",
+                description="≥0 时统一覆盖点位 dwell（秒），用于压低到点停留",
+            ),
+            DeclareLaunchArgument(
+                "yaw_mode",
+                default_value="fixed",
+                description="到点朝向：fixed 用点位 yaw / travel 朝进点方向 / next 朝下一段方向",
+            ),
+            DeclareLaunchArgument(
+                "goal_retry_limit",
+                default_value="3",
+                description="同一目标连续失败几次后放弃（含首次，即最多尝试这么多次；默认 3）",
+            ),
+            DeclareLaunchArgument(
+                "goal_retry_delay",
+                default_value="5.0",
+                description="导航失败后的重试间隔（秒，默认 5）",
+            ),
+            DeclareLaunchArgument(
+                "on_goal_failure",
+                default_value="abort",
+                description="重试耗尽后怎么办：abort 终止本次巡检 / skip 跳过该点继续",
+            ),
             navigation,
             voice,
             timer,

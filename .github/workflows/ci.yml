@@ -74,3 +74,125 @@ jobs:
           name: colcon-logs
           path: log/
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 离线闭环演示：真起一次 ROS 图（假机器狗 + 感知 + Nav2 + 巡检 + 播报），逐点验收。
+  #
+  # 为什么单独一个 job：上面那个只做 colcon build/test，**从头到尾不启动任何节点**，
+  # 所以"节点一启动就退出"这类问题它一个都抓不到——twist_bridge 把
+  # SignalHandlerOptions.NO 写成 NONE，py_compile 和单测都正常，真起节点时却在
+  # rclpy.init 那行 AttributeError 直接死，launch 里只表现为 "process has died"。
+  # 本 job 跑的是与生产同一条链路（make_demo_* → check_site → apply_site → render_site
+  # → run_site → patrol.launch → demo_verify），任何节点起不来都会表现为
+  # "狗不动 → 验收超时 → 退出码非 0"。
+  #
+  # 与单测 job 分开而不是并成一个：演示挂了要能单独重跑（gh run rerun --job），
+  # 超时预算也分开算（ROS 节点卡住不至于吃掉单测那点时间）。
+  # ---------------------------------------------------------------------------
+  offline-closed-loop:
+    name: 离线闭环演示（真起 ROS 图）
+    runs-on: ubuntu-22.04
+    needs: build-and-test
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ROS 2 Humble
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+
+      - name: Extra apt dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-vcstool python3-colcon-common-extensions \
+            ros-humble-rosidl-generator-dds-idl \
+            python3-numpy python3-yaml python3-pytest \
+            ros-humble-rmw-cyclonedds-cpp
+          # deploy/go2_env.sh 里 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp，但本仓库没有哪个
+          # package.xml 声明它，rosdep 不会带进来；缺了它每个节点都起不来。
+          # Runner 镜像预装 LLVM 的 libunwind-14-dev，与 Ubuntu libunwind-dev 冲突
+          # （slam_toolbox → libceres-dev → libgoogle-glog-dev 的深层依赖），
+          # 作为深层依赖时 apt 拒绝替换，故在此显式请求安装。
+          sudo apt-get install -y libunwind-dev
+
+      - name: Import pinned official Unitree packages
+        run: vcs import < repos/go2_official_ws.repos
+
+      - name: Skip upstream example package (not needed for build/test)
+        run: touch src/unitree_ros2/example/COLCON_IGNORE
+
+      - name: rosdep install
+        shell: bash
+        run: |
+          sudo rosdep init 2>/dev/null || true
+          rosdep update
+          source /opt/ros/humble/setup.bash
+          rosdep install --from-paths src --ignore-src -y --rosdistro humble
+
+      # 与 scripts/bootstrap.sh 的顺序一致：先单独编译这段 ws，再编译根工作空间。
+      # 两个理由，都不是为了好看：
+      #  1) deploy/preflight.sh:44 检查这个 install/ 在不在，缺了就报 [FAIL]。CI 里只编译
+      #     根工作空间的话它必然缺——那是布局差异造成的假报警，而这个 job 存在的意义正是
+      #     "日志里出现的每一条红都是真的"，假报警会把真报警淹掉。
+      #  2) 生产链路真的依赖它：bootstrap.sh 少了 src/unitree_ros2/cyclonedds_ws 直接 exit 1。
+      #     之前没有任何 job 验过这段能在钉住的 ref 上编译出来。
+      - name: 编译 unitree_ros2/cyclonedds_ws（同 bootstrap.sh）
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd src/unitree_ros2/cyclonedds_ws
+          colcon build --symlink-install --event-handlers console_cohesion+
+
+      - name: colcon build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --symlink-install --event-handlers console_cohesion+
+
+      # 先把 DDS 单独验一遍：这一步失败 = 环境问题（RMW 没装 / 网卡名不对），
+      # 与"巡检逻辑有问题"是两码事，分开报错省得去翻一屏 Nav2 日志。
+      - name: 预检 DDS（RMW / 网卡）
+        shell: bash
+        run: |
+          set +u
+          source /opt/ros/humble/setup.bash
+          source install/setup.bash
+          source deploy/go2_env.sh
+          echo "[ci] RMW=${RMW_IMPLEMENTATION} IFACE=${GO2_IFACE}"
+          echo "[ci] CYCLONEDDS_URI=${CYCLONEDDS_URI}"
+          python3 - <<'PY'
+          import rclpy
+          from std_msgs.msg import String
+
+          rclpy.init()
+          node = rclpy.create_node("ci_dds_probe")
+          node.create_publisher(String, "/ci/probe", 10)
+          for _ in range(20):
+              rclpy.spin_once(node, timeout_sec=0.05)
+          node.destroy_node()
+          rclpy.shutdown()
+          print("[ci] DDS 就绪")
+          PY
+
+      # --timeout 900：验收器自己的判定超时。CI runner 核少，Nav2 整套 + 假狗的
+      # 360 线点云在同样的墙钟时间里跑得比开发机慢，默认 420s 容易踩线。
+      - name: 离线闭环演示（无头）
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          set +u
+          source /opt/ros/humble/setup.bash
+          bash tools/offline_demo/run_patrol_demo.sh --timeout 900
+
+      # 不管成没成都传：失败时要看 patrol_stack.log 里是谁死了，
+      # 成功时 report.json 就是"这轮到底验了什么"的证据。
+      - name: Upload 演示日志与验收报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-demo-logs
+          path: /tmp/go2_offline_demo/
+          if-no-files-found: ignore

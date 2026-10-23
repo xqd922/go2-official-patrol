@@ -2,7 +2,22 @@ pointcloud_to_laserscan:
   ros__parameters:
     target_frame: base_footprint
     transform_tolerance: 0.05
-    min_height: 0.05
+    # 高度窗口是**变换到 base_footprint 之后**的 z，不是雷达平面坐标。
+    #
+    # 实测：odom → base_footprint 的 z = 0.304（odom_bridge 直接把
+    # sportmodestate.position.z 写进 TF），所以**地面在 base_footprint 里就是
+    # z ≈ -0.30**。旧值 min_height=-0.30 正好把整片地面收进 /scan：
+    # 近场 0.3–0.7 m 的 3000+ 个点 z 最大只有 -0.035，全是地板回波，
+    # 被 pointcloud_to_laserscan 压成障碍后，在机器人周围糊出一圈半径 0.4 m
+    # 的假墙——地图就成了一个封闭小方块，永远长不出房间轮廓。
+    #
+    # 现取 -0.10：离地约 0.20 m，能去掉地面环，又保留墙面、桌腿、纸箱等
+    # 真实障碍。实测保留 699/5569 点（12.6%），1.5–5 m 的墙面点中位 z=-0.093，
+    # 仍在窗口内。
+    #
+    # 注意：若以后把 odom_bridge 的 base_footprint 改成真正的"地面投影"
+    # （z=0），这两个值要整体上移 0.30，改成 [0.20, 1.50]。
+    min_height: -0.10
     max_height: 1.20
     angle_min: -3.14159
     angle_max: 3.14159

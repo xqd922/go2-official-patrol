@@ -58,8 +58,12 @@ controller_server:
       min_lookahead_dist: 0.4
       max_lookahead_dist: 1.2
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.8
-      max_angular_accel: 1.5
+      # 到点/换段时的原地转向：转得快一点，减少"转弯处很慢"的停顿感
+      rotate_to_heading_angular_vel: 1.6
+      max_angular_accel: 3.0
+      # 注意：调大这个值不会更快，只会把"停车转"换成"低速蠕行掰方向"（实测更慢），
+      # 保持 Nav2 默认 0.785，让到点/换段该转就干脆转。
+      rotate_to_heading_min_angle: 0.785
       transform_tolerance: 0.1
       use_velocity_scaled_lookahead_dist: false
       use_costregulation: false

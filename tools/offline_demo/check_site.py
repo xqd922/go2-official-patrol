@@ -22,7 +22,8 @@ from geometry import RESOLUTION, room_from_spec  # noqa: E402
 
 DEFAULT_SITE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site-demo")
 WALL_MARGIN = 0.55  # 墙净空下限：robot_radius 0.35 + 0.20 余量
-OBSTACLE_MARGIN = 0.70  # 障碍净空下限：robot_radius 0.35 + inflation 0.45
+OBSTACLE_MARGIN = 0.70  # 障碍净空下限：robot_radius 0.35 + 0.35 余量（不是 inflation 0.45，
+#                          按 0.35+0.45=0.80 去"修正"会把 demo 点位 equipment_zone 误判为警告）
 
 
 def wall_clearance(room, x: float, y: float) -> float:
@@ -58,8 +59,9 @@ def check(site_dir: str, room) -> int:
         failures.append("没有 home: true 的点位（低电量返航与收工回原点都会缺目标）")
     elif not waypoints[0].get("home"):
         warnings.append(
-            f"home 不是第一个点位（当前第一个是 {waypoints[0].get('name')}）；"
-            "patrol_manager 用 waypoints[0] 作为低电量返航点，建议把 home 放第一位"
+            f"home 不在第一个点位（第一个是 {waypoints[0].get('name')}）："
+            "巡检仍会按列表顺序走到 home 这个点，返航阶段还会再去一次——不影响功能，"
+            "但把 home 排第一读起来更清楚（patrol_sequence._resolve_home_index 取的是 home: true）"
         )
     if len(homes) > 1:
         failures.append(f"home 点位有 {len(homes)} 个，应只保留一个")
